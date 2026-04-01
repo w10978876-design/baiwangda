@@ -230,6 +230,12 @@ function showLoadError(triedUrl, err) {
 
 // ── 入口 ──────────────────────────────────────────
 async function loadData() {
+  // Streamlit 嵌入场景：优先使用内嵌数据，避免同源 fetch 失败导致一直“加载中”
+  if (window.__EMBEDDED_DATA__) {
+    DATA = window.__EMBEDDED_DATA__;
+    init();
+    return;
+  }
   const fetchUrl = resolveJsonFetchUrl();
   try {
     const resp = await fetch(fetchUrl);
