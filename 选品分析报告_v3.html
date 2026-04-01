@@ -393,6 +393,19 @@ function renderContent(cat) {
     }).join("");
     return `<tr>${cells}</tr>`;
   }).join("");
+  const trsAll = (rows, cols) => rows.map(r => {
+    const cells = cols.map(c => {
+      if (c==="tag")       return `<td>${r.tag}</td>`;
+      if (c==="sku")       return `<td class="num">${r.sku}</td>`;
+      if (c==="psd")       return `<td class="num">${r.psd.toFixed(3)}</td>`;
+      if (c==="conv")      return `<td class="num">${(r.conv*100).toFixed(0)}%</td>`;
+      if (c==="margin")    return `<td class="num">${(r.margin*100).toFixed(1)}%</td>`;
+      if (c==="total_qty") return `<td class="num">${r.total_qty.toLocaleString()}</td>`;
+      if (c==="signal")    return `<td>${badge(r)}</td>`;
+      return `<td>${r[c]}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("");
 
   const flavorTbl = flavors.length
     ? `<table class="data-table">
@@ -408,12 +421,21 @@ function renderContent(cat) {
         ${brandOptions.map(b => `<option value="${b}" ${CURRENT_BODY_BRAND_FILTER === b ? "selected" : ""}>${b}</option>`).join("")}
       </select>
     </div>`;
+  let bodyRowsForTable = bodies.slice(0, 12);
+  if (
+    cat === "日配冷藏" &&
+    CURRENT_BODY_BRAND_FILTER === "__ALL__" &&
+    !bodyRowsForTable.some(r => r.tag === "椰子水")
+  ) {
+    const coconutRow = bodyAll.find(r => r.tag === "椰子水");
+    if (coconutRow) bodyRowsForTable = [...bodyRowsForTable, coconutRow];
+  }
   const bodyTbl = bodies.length
     ? `<div style="margin-top:20px">
          ${bodyFilter}
          <table class="data-table">
            <thead><tr><th>商品主体</th><th>SKU数</th><th>均销量PSD</th><th>铺货转化率</th><th>信号</th></tr></thead>
-           <tbody>${trs(bodies, ["tag","sku","psd","conv","signal"])}</tbody>
+           <tbody>${trsAll(bodyRowsForTable, ["tag","sku","psd","conv","signal"])}</tbody>
          </table></div>` : "";
 
   // 立即开发：高需低供信号（优先级最高）
