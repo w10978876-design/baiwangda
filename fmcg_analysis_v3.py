@@ -270,6 +270,9 @@ def normalize_flavor_for_stats(flavor) -> str:
     s = str(flavor).strip()
     if not s or s.lower() == "nan":
         return ""
+    # 业务要求：保留「果味」原词，不做「果」或「水果」归并
+    if s == "果味":
+        return "果味"
 
     def _apply_aliases(x: str) -> str:
         return FLAVOR_STATS_ALIASES.get(x, x)
@@ -2197,7 +2200,17 @@ def main():
 
         def top1_by_psd(dim):
             """按销量PSD取第一（口味/主体：反映当前实际销量）"""
-            s = sub[sub["标签维度"] == dim].sort_values("平均销量PSD", ascending=False)
+            s = sub[sub["标签维度"] == dim].copy()
+            if dim == "商品主体":
+                # 过滤单期/极窄样本的异常峰值，避免如「单枚茶叶蛋」这类点状样本成为快照 TOP 主体
+                s = s[
+                    ~s["趋势方向"].astype(str).eq("— 单期")
+                    & (s["SKU数量"] >= 2)
+                    & (s["覆盖地区数"] >= 5)
+                ]
+                if s.empty:
+                    s = sub[sub["标签维度"] == dim].copy()
+            s = s.sort_values("平均销量PSD", ascending=False)
             if s.empty:
                 return None
             r = s.iloc[0]

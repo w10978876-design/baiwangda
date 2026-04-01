@@ -474,12 +474,16 @@ function renderContent(cat) {
     : "";
   const cautionOtherParts = [];
   if (cautionFlavor.length) cautionOtherParts.push(`口味“${cautionFlavor.join("、")}”`);
-  const cautionOtherDesc = cautionOtherParts.length
-    ? `${cautionOtherParts.join("；")}：消费者接受度偏低，谨慎引进` : "";
+  // 立即开发中的口味不可再进入谨慎引进
+  const cautionFlavorFiltered = cautionFlavor.filter(t => !immediateFlavorTagSet.has(t));
+  const cautionOtherDesc = cautionFlavorFiltered.length
+    ? `口味“${cautionFlavorFiltered.join("、")}”：消费者接受度偏低，谨慎引进` : "";
+  const cautionFlavorSet = new Set(cautionFlavorFiltered);
 
-  // 待验证：先取高需低供口味（与“立即开发”去重）
+  // 待验证：先取高需低供口味（与“立即开发/谨慎引进”去重）
   let watchRows = watchPool
     .filter(r => !immediateFlavorTagSet.has(r.tag))
+    .filter(r => !cautionFlavorSet.has(r.tag))
     .sort((a, b) => {
       const convA = Number(a.conv || 0), convB = Number(b.conv || 0);
       if (convB !== convA) return convB - convA;
@@ -490,6 +494,7 @@ function renderContent(cat) {
   if (!watchRows.length) {
     watchRows = flavors
       .filter(r => !immediateFlavorTagSet.has(r.tag))
+      .filter(r => !cautionFlavorSet.has(r.tag))
       .filter(r => r.signal !== "⚡ 高需低供")
       .filter(r => Number(r.conv || 0) >= 0.2 && Number(r.total_qty || 0) > 0)
       .sort((a, b) => {
@@ -523,7 +528,7 @@ function renderContent(cat) {
     <div class="section-body">
       <div class="matrix">
         <div class="matrix-cell highlight">
-          <div class="matrix-cell-title">🔥 立即开发</div>
+          <div class="matrix-cell-title">🔥 趋势方向</div>
           <p>高销量PSD + SKU数量少，消费者有需求但货架供给不足</p>
           <div style="margin-top:10px">${blankTags || "<span style='color:var(--muted);font-size:0.8rem'>暂无高需低供信号</span>"}</div>
         </div>
