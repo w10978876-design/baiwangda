@@ -17,6 +17,6 @@ if report_file.exists():
         data_obj = json.loads(json_file.read_text(encoding="utf-8"))
         inject = "<script>window.__EMBEDDED_DATA__ = " + json.dumps(data_obj, ensure_ascii=False) + ";</script>"
         html = html.replace("<script>", inject + "\n<script>", 1)
-    components.html(html, height=1800, scrolling=True)
+    components.html(html, height=2600, scrolling=False)
 else:
     st.error(f"未找到报告文件：{report_file.name}")
