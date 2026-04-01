@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>选品分析报告</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=DM+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #1a1510;
+    --paper: #f5f0e8;
+    --accent: #c8401a;
+    --muted: #7a6e60;
+    --rule: #d4c9b5;
+    --hot: #c8401a;
+    --rise: #2d6a4f;
+    --flat: #5c6970;
+    --cold: #9e9e9e;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--paper); color: var(--ink); font-family: 'Noto Serif SC', serif; min-height: 100vh; }
+
+  /* banner */
+  .banner { background: var(--ink); color: var(--paper); padding: 28px 48px 22px; display: flex; align-items: baseline; gap: 24px; border-bottom: 3px solid var(--accent); }
+  .banner-title { font-family: 'Instrument Serif', serif; font-size: 2rem; letter-spacing: 0.02em; }
+  .banner-sub { font-family: 'DM Mono', monospace; font-size: 0.75rem; color: #9e8e78; letter-spacing: 0.1em; text-transform: uppercase; }
+  .banner-meta { margin-left: auto; text-align: right; }
+  .banner-tag { display: inline-block; background: var(--accent); color: white; font-family: 'DM Mono', monospace; font-size: 0.7rem; padding: 4px 12px; letter-spacing: 0.08em; }
+  .banner-time { display: block; font-family: 'DM Mono', monospace; font-size: 0.65rem; color: #9e8e78; margin-top: 6px; }
+
+  /* cat bar */
+  .cat-bar { background: #ede7d8; border-bottom: 1px solid var(--rule); padding: 0 48px; display: flex; flex-wrap: wrap; }
+  .cat-btn { font-family: 'Noto Serif SC', serif; font-size: 0.9rem; padding: 14px 24px; border: none; background: transparent; cursor: pointer; color: var(--muted); border-bottom: 3px solid transparent; transition: all 0.2s; letter-spacing: 0.05em; }
+  .cat-btn.active, .cat-btn:hover { color: var(--ink); border-bottom-color: var(--accent); }
+  .cat-btn.active { font-weight: 700; }
+
+  /* layout */
+  .main { display: flex; min-height: calc(100vh - 120px); }
+  .sidebar { width: 280px; flex-shrink: 0; border-right: 1px solid var(--rule); padding: 32px 24px; background: #f0ebe0; }
+  .content { flex: 1; padding: 36px 48px; max-width: 900px; }
+
+  /* sidebar */
+  .sidebar-label { font-family: 'DM Mono', monospace; font-size: 0.65rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .data-card { background: white; border: 1px solid var(--rule); padding: 14px 16px; margin-bottom: 10px; border-left: 3px solid transparent; }
+  .data-card.hot { border-left-color: var(--hot); }
+  .data-card.rise { border-left-color: var(--rise); }
+  .data-card.cold { border-left-color: var(--cold); }
+  .data-card-label { font-size: 0.72rem; color: var(--muted); margin-bottom: 4px; font-family: 'DM Mono', monospace; }
+  .data-card-val { font-size: 1.4rem; font-weight: 700; line-height: 1; }
+  .data-card-sub { font-size: 0.72rem; color: var(--muted); margin-top: 3px; }
+  .divider { border: none; border-top: 1px solid var(--rule); margin: 20px 0; }
+
+  /* heat bars */
+  .tag-list { display: flex; flex-direction: column; gap: 6px; }
+  .tag-row { display: flex; align-items: center; gap: 8px; }
+  .tag-name { font-size: 0.8rem; width: 56px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tag-bar-wrap { flex: 1; background: #e4ddd0; height: 8px; }
+  .tag-bar { height: 100%; transition: width 0.9s ease; }
+  .tag-score { font-family: 'DM Mono', monospace; font-size: 0.68rem; color: var(--muted); width: 30px; text-align: right; }
+
+  /* content */
+  .section-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; padding-bottom: 10px; border-bottom: 2px solid var(--ink); }
+  .section-num { font-family: 'DM Mono', monospace; font-size: 0.7rem; color: var(--muted); letter-spacing: 0.1em; }
+  .section-title { font-size: 1.25rem; font-weight: 700; letter-spacing: 0.03em; }
+  .section-body { margin-bottom: 40px; }
+
+  /* AI box */
+  .report-box { border: 1px solid var(--rule); background: white; padding: 28px 32px; line-height: 1.9; font-size: 0.95rem; position: relative; min-height: 120px; }
+  .report-box::before { content: 'AI 分析'; font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.15em; color: var(--muted); position: absolute; top: -10px; left: 16px; background: white; padding: 0 6px; }
+  .report-placeholder { color: var(--muted); font-style: italic; font-size: 0.9rem; }
+  .loading-dots span { display: inline-block; animation: blink 1.2s infinite; }
+  .loading-dots span:nth-child(2) { animation-delay: 0.2s; }
+  .loading-dots span:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink { 0%,80%,100%{opacity:0.2} 40%{opacity:1} }
+
+  /* matrix */
+  .matrix { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+  .matrix-cell { border: 1px solid var(--rule); padding: 16px; background: white; }
+  .matrix-cell.highlight { border-color: var(--accent); background: #fff8f5; }
+  .matrix-cell-title { font-size: 0.78rem; font-weight: 700; margin-bottom: 6px; color: var(--accent); font-family: 'DM Mono', monospace; letter-spacing: 0.08em; }
+  .matrix-cell-title.grey { color: var(--muted); }
+  .matrix-cell p { font-size: 0.82rem; line-height: 1.6; color: var(--muted); }
+
+  /* signals */
+  .signal { display: inline-block; padding: 2px 8px; font-size: 0.72rem; font-family: 'DM Mono', monospace; margin-right: 6px; margin-bottom: 4px; }
+  .signal.hot   { background: #fde8e2; color: var(--hot); }
+  .signal.rise  { background: #e2f0e8; color: var(--rise); }
+  .signal.blank { background: #fff3cd; color: #856404; }
+  .signal.cold  { background: #f0f0f0; color: var(--cold); }
+
+  /* button */
+  .btn-generate { background: var(--ink); color: var(--paper); border: none; padding: 12px 28px; font-family: 'Noto Serif SC', serif; font-size: 0.9rem; cursor: pointer; letter-spacing: 0.08em; transition: background 0.2s; margin-top: 16px; }
+  .btn-generate:hover { background: var(--accent); }
+  .btn-generate:disabled { background: var(--muted); cursor: not-allowed; }
+
+  /* table */
+  .data-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; margin-top: 12px; }
+  .data-table th { background: var(--ink); color: var(--paper); padding: 8px 12px; text-align: left; font-weight: 400; font-family: 'DM Mono', monospace; font-size: 0.7rem; letter-spacing: 0.06em; }
+  .data-table td { padding: 8px 12px; border-bottom: 1px solid var(--rule); }
+  .data-table tr:hover td { background: #ede7d8; }
+  .num { font-family: 'DM Mono', monospace; }
+  .table-tools { margin: 10px 0 6px; display: flex; justify-content: flex-end; }
+  .table-tools select { border: 1px solid var(--rule); background: #fff; padding: 4px 8px; font-size: 0.78rem; color: var(--ink); }
+
+  /* states */
+  .state-msg { text-align: center; padding: 48px 24px; color: var(--muted); font-style: italic; }
+  .state-err { text-align: center; padding: 48px 24px; color: var(--hot); line-height: 2; }
+
+  .fade-in { animation: fadeIn 0.4s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+</style>
+</head>
+<body>
+
+<div class="banner">
+  <div>
+    <div class="banner-title">选品分析报告</div>
+    <div class="banner-sub">Consumer Acceptance Intelligence · FMCG</div>
+  </div>
+  <div class="banner-meta">
+    <span class="banner-tag">AI POWERED</span>
+    <span class="banner-time" id="gen-time">数据加载中…</span>
+  </div>
+</div>
+
+<div class="cat-bar" id="cat-bar">
+  <div class="state-msg" style="padding:14px 0">正在读取数据…</div>
+</div>
+
+<div class="main">
+  <div class="sidebar" id="sidebar"><div class="state-msg">正在加载…</div></div>
+  <div class="content"  id="content"><div class="state-msg">正在加载…</div></div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════
+// 配置：JSON 路径与 py 脚本输出保持一致
+// 默认值：OUTPUT_FILE 去掉 .xlsx 后缀 + "_热度数据.json"
+// 例：OUTPUT_FILE = "商品标签热度分析.xlsx"
+//     JSON_PATH   = "商品标签热度分析_热度数据.json"
+// ══════════════════════════════════════════════════
+const JSON_PATH = "商品标签热度分析_热度数据.json";
+
+let DATA = null;
+let CURRENT_CAT = null;
+let CURRENT_BODY_BRAND_FILTER = "__ALL__";
+
+function pickBestPriceBand(rows) {
+  if (!rows || !rows.length) return null;
+  const max = (arr, fn) => Math.max(...arr.map(fn), 0.0001);
+  const maxPsd = max(rows, r => Number(r.psd || 0));
+  const maxConv = max(rows, r => Number(r.conv || 0));
+  const maxMargin = max(rows, r => Number(r.margin || 0));
+  const maxScore = max(rows, r => Number(r.score || 0));
+  const maxQty = max(rows, r => Number(r.total_qty || 0));
+
+  // 价格带先验：中低/中价更可能是“可规模化最优带”，低价与高价不直接淘汰但降权
+  const bandPrior = tag => {
+    if (tag === "低价(≤3元)") return 0.72;
+    if (tag === "亲民(3-6元)") return 1.12;
+    if (tag === "中价(6-10元)") return 1.18;
+    if (tag === "中高(10-20元)") return 0.95;
+    if (tag === "高价(20元+)") return 0.65;
+    return 1.0;
+  };
+
+  const scored = rows.map(r => {
+    const psdN = Number(r.psd || 0) / maxPsd;
+    const convN = Number(r.conv || 0) / maxConv;
+    const marginN = Number(r.margin || 0) / maxMargin;
+    const scoreN = Number(r.score || 0) / maxScore;
+    const qtyN = Math.log10(1 + Number(r.total_qty || 0)) / Math.log10(1 + maxQty);
+    const base = psdN * 0.28 + convN * 0.24 + marginN * 0.20 + scoreN * 0.16 + qtyN * 0.12;
+    const robustPenalty =
+      (Number(r.sku || 0) < 3 ? 0.92 : 1.0) *
+      (Number(r.regions || 0) < 8 ? 0.92 : 1.0);
+    const final = base * bandPrior(r.tag) * robustPenalty;
+    return { ...r, _bestScore: final };
+  });
+
+  // 若最优是“低价”，但第二名接近，则优先非低价（避免低价体量一票否决）
+  const sorted = scored.sort((a, b) => b._bestScore - a._bestScore);
+  const best = sorted[0];
+  if (best && best.tag === "低价(≤3元)") {
+    const alt = sorted.find(x => x.tag !== "低价(≤3元)");
+    if (alt && alt._bestScore >= best._bestScore * 0.9) return alt;
+  }
+  return best || null;
+}
+
+// ── 入口 ──────────────────────────────────────────
+async function loadData() {
+  try {
+    const resp = await fetch(JSON_PATH);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    DATA = await resp.json();
+    init();
+  } catch (e) {
+    document.getElementById("cat-bar").innerHTML =
+      `<div class="state-err" style="padding:14px 24px">
+         ⚠️ 无法加载数据文件（${JSON_PATH}）<br>
+         <small>请先运行 fmcg_analysis.py，确保 JSON 与本页面在同一目录</small>
+       </div>`;
+    document.getElementById("content").innerHTML =
+      `<div class="state-err">缺少文件：<code>${JSON_PATH}</code></div>`;
+    document.getElementById("sidebar").innerHTML = "";
+  }
+}
+
+// ── 初始化 ─────────────────────────────────────────
+function init() {
+  document.getElementById("gen-time").textContent = "数据生成于 " + DATA.generated_at;
+
+  const bar = document.getElementById("cat-bar");
+  bar.innerHTML = DATA.categories.map((cat, i) =>
+    `<button class="cat-btn ${i===0?"active":""}" onclick="switchCat('${cat}',this)">${cat}</button>`
+  ).join("");
+
+  switchCat(DATA.categories[0], bar.querySelector(".cat-btn.active"));
+}
+
+// ── 品类切换 ───────────────────────────────────────
+function switchCat(cat, btn) {
+  document.querySelectorAll(".cat-btn").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+  CURRENT_CAT = cat;
+  CURRENT_BODY_BRAND_FILTER = "__ALL__";
+  renderSidebar(cat);
+  renderContent(cat);
+}
+
+// ── 侧边栏 ─────────────────────────────────────────
+function renderSidebar(cat) {
+  const snap    = DATA.snapshots[cat] || {};
+  const tf      = snap.top_flavor || null;
+  const tb      = snap.top_body   || null;
+  const tp = pickBestPriceBand((DATA.heat || []).filter(r => r.cat === cat && r.dim === "价格带")) || snap.top_price || null;
+  const flavors = snap.flavors    || [];
+  const blanks  = (DATA.heat || [])
+    .filter(r => r.cat === cat && r.signal === "⚡ 高需低供")
+    // 只保留可读性更强的维度，过滤“纯数字”标签
+    .filter(r => ["口味", "商品主体", "价格带"].includes(r.dim))
+    .filter(r => !/^\d+(\.\d+)?$/.test(String(r.tag || "").trim()))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 8);
+
+  const card = (cls, label, val, sub) =>
+    `<div class="data-card ${cls}">
+       <div class="data-card-label">${label}</div>
+       <div class="data-card-val">${val}</div>
+       <div class="data-card-sub">${sub}</div>
+     </div>`;
+
+  let html = `<div class="sidebar-label">数据快照</div>`;
+  if (tf) html += card("hot",  "TOP 口味 · 销量PSD",  tf.psd.toFixed(2), `${tf.tag} · 铺货转化率 ${(tf.conv*100).toFixed(0)}%`);
+  if (tb) html += card("rise", "TOP 主体 · 销量PSD", tb.psd.toFixed(2), `${tb.tag} · 铺货转化率 ${(tb.conv*100).toFixed(0)}%`);
+  if (tp) html += card("rise", "最优价格带", tp.tag, `需求指数优先 · 销量PSD ${tp.psd.toFixed(2)}`);
+
+  if (flavors.length) {
+    html += `<hr class="divider"><div class="sidebar-label">口味热度分布</div>
+             <div class="tag-list" id="flavor-bars"></div>`;
+  }
+  if (blanks.length) {
+    html += `<hr class="divider"><div class="sidebar-label">空白机会信号</div>
+             <div>${blanks.map(b => `<span class="signal hot">⚡ ${b.dim}·${b.tag}</span>`).join("")}</div>
+             <div style="font-size:0.72rem;color:var(--muted);margin-top:8px;">高销量PSD但SKU数量少，供给不足</div>`;
+  }
+
+  document.getElementById("sidebar").innerHTML = html;
+
+  if (flavors.length) {
+    const maxScore = Math.max(...flavors.map(f => f.score), 0.01);
+    document.getElementById("flavor-bars").innerHTML = flavors.map(f => {
+      const pct   = (f.score / maxScore * 100).toFixed(1);
+      const color = f.score >= 0.75 ? "#c8401a" : f.score >= 0.5 ? "#d4700a" : f.score >= 0.25 ? "#2d6a4f" : "#9e9e9e";
+      const label = f.name || f.tag || "";
+      return `<div class="tag-row">
+        <span class="tag-name" title="${label}">${label}</span>
+        <div class="tag-bar-wrap"><div class="tag-bar" data-w="${pct}" style="width:0%;background:${color}"></div></div>
+        <span class="tag-score">${(f.score*100).toFixed(0)}</span>
+      </div>`;
+    }).join("");
+    setTimeout(() => {
+      document.querySelectorAll(".tag-bar").forEach(b => b.style.width = b.dataset.w + "%");
+    }, 300);
+  }
+}
+
+// ── 主内容区 ───────────────────────────────────────
+function renderContent(cat) {
+  const all     = DATA.heat.filter(r => r.cat === cat);
+  const flavors = all.filter(r => r.dim === "口味").sort((a,b) => b.score - a.score);
+  const bodyAll = all.filter(r => r.dim === "商品主体").sort((a,b) => b.score - a.score);
+  const brandOptions = [...new Set(bodyAll.map(r => (r.brand || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+  const bodies  = CURRENT_BODY_BRAND_FILTER === "__ALL__"
+    ? bodyAll
+    : bodyAll.filter(r => (r.brand || "").trim() === CURRENT_BODY_BRAND_FILTER);
+  const prices  = all.filter(r => r.dim === "价格带").sort((a,b) => b.score - a.score);
+  const specs   = all.filter(r => r.dim === "规格数值").sort((a,b) => b.score - a.score);
+  const blanks  = all
+    .filter(r => r.signal === "⚡ 高需低供")
+    .filter(r => ["口味", "商品主体", "价格带"].includes(r.dim))
+    .filter(r => !/^\d+(\.\d+)?$/.test(String(r.tag || "").trim()));
+  const cold    = all.filter(r => r.level.includes("冷淡"));
+
+  const badge = r => {
+    if (r.signal === "⚡ 高需低供") return `<span class="signal hot">⚡ 高需低供</span>`;
+    if (r.level.includes("高热"))   return `<span class="signal hot">🔥 高热</span>`;
+    if (r.level.includes("上升"))   return `<span class="signal rise">📈 上升</span>`;
+    if (r.level.includes("平稳"))   return `<span class="signal blank">➡️ 平稳</span>`;
+    return `<span class="signal cold">❄️ 冷淡</span>`;
+  };
+
+  const trs = (rows, cols) => rows.slice(0,12).map(r => {
+    const cells = cols.map(c => {
+      if (c==="tag")       return `<td>${r.tag}</td>`;
+      if (c==="sku")       return `<td class="num">${r.sku}</td>`;
+      if (c==="psd")       return `<td class="num">${r.psd.toFixed(3)}</td>`;
+      if (c==="conv")      return `<td class="num">${(r.conv*100).toFixed(0)}%</td>`;
+      if (c==="margin")    return `<td class="num">${(r.margin*100).toFixed(1)}%</td>`;
+      if (c==="total_qty") return `<td class="num">${r.total_qty.toLocaleString()}</td>`;
+      if (c==="signal")    return `<td>${badge(r)}</td>`;
+      return `<td>${r[c]}</td>`;
+    }).join("");
+    return `<tr>${cells}</tr>`;
+  }).join("");
+
+  const flavorTbl = flavors.length
+    ? `<table class="data-table">
+         <thead><tr><th>口味标签</th><th>SKU数</th><th>均销量PSD</th><th>铺货转化率</th><th>毛利率</th><th>信号</th></tr></thead>
+         <tbody>${trs(flavors, ["tag","sku","psd","conv","margin","signal"])}</tbody>
+       </table>`
+    : `<p style="color:var(--muted)">暂无口味标签数据</p>`;
+
+  const bodyFilter = `<div class="table-tools">
+      <label style="font-size:0.75rem;color:var(--muted);margin-right:8px;">品牌筛查</label>
+      <select id="body-brand-filter" onchange="onBodyBrandFilterChange(this.value)">
+        <option value="__ALL__" ${CURRENT_BODY_BRAND_FILTER === "__ALL__" ? "selected" : ""}>全部品牌</option>
+        ${brandOptions.map(b => `<option value="${b}" ${CURRENT_BODY_BRAND_FILTER === b ? "selected" : ""}>${b}</option>`).join("")}
+      </select>
+    </div>`;
+  const bodyTbl = bodies.length
+    ? `<div style="margin-top:20px">
+         ${bodyFilter}
+         <table class="data-table">
+           <thead><tr><th>商品主体</th><th>SKU数</th><th>均销量PSD</th><th>铺货转化率</th><th>信号</th></tr></thead>
+           <tbody>${trs(bodies, ["tag","sku","psd","conv","signal"])}</tbody>
+         </table></div>` : "";
+
+  const blankTags = blanks.slice(0,4).map(r =>
+    `<span class="signal hot">⚡ ${r.tag}（${r.dim}）</span>`).join("");
+
+  const topPrice = pickBestPriceBand(prices);
+  const priceDesc = topPrice
+    ? `<strong>${topPrice.tag}</strong> 需求指数最优，销量PSD ${topPrice.psd.toFixed(2)}，铺货转化率 ${(topPrice.conv*100).toFixed(0)}%，SKU ${topPrice.sku}`
+    : "暂无价格带数据";
+
+  const topSpec = specs[0];
+  const specDesc = topSpec
+    ? `<br>规格 <strong>${topSpec.tag}</strong> 热度领先，销量PSD ${topSpec.psd.toFixed(2)}` : "";
+
+  const cautionTags = cold.slice(0,3).map(r => r.tag).join("、") || "—";
+  const watchTags   = blanks.slice(4,8).map(r => r.tag).join("、") || "—";
+
+  document.getElementById("content").innerHTML = `
+  <div class="fade-in">
+    <div class="section-head">
+      <span class="section-num">01</span>
+      <span class="section-title">已验证：哪些特征正在被消费者接受</span>
+    </div>
+    <div class="section-body">
+      ${flavorTbl}
+      ${bodyTbl}
+    </div>
+
+    <div class="section-head">
+      <span class="section-num">02</span>
+      <span class="section-title">空白机会：高热标签 × 低供给 = 开发方向</span>
+    </div>
+    <div class="section-body">
+      <div class="matrix">
+        <div class="matrix-cell highlight">
+          <div class="matrix-cell-title">🔥 立即开发</div>
+          <p>高销量PSD + SKU数量少，消费者有需求但货架供给不足</p>
+          <div style="margin-top:10px">${blankTags || "<span style='color:var(--muted);font-size:0.8rem'>暂无高需低供信号</span>"}</div>
+        </div>
+        <div class="matrix-cell highlight">
+          <div class="matrix-cell-title">📦 价格带与规格</div>
+          <p>${priceDesc}${specDesc}</p>
+        </div>
+        <div class="matrix-cell">
+          <div class="matrix-cell-title grey">🧪 待验证</div>
+          <p>${watchTags}：铺货转化率尚可但总量小，可小批量试验观察复购</p>
+        </div>
+        <div class="matrix-cell">
+          <div class="matrix-cell-title grey">❄️ 谨慎</div>
+          <p>${cautionTags}：热度低或持续下滑，受众较小众，谨慎引进</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-head">
+      <span class="section-num">03</span>
+      <span class="section-title">AI 选品建议</span>
+    </div>
+    <div class="section-body">
+      <div class="report-box" id="report-box">
+        <div class="report-placeholder">点击下方按钮，让 AI 结合以上数据生成选品建议</div>
+      </div>
+      <button class="btn-generate" id="btn-generate" onclick="generateReport()">生成 AI 选品建议</button>
+    </div>
+  </div>`;
+}
+
+function onBodyBrandFilterChange(val) {
+  CURRENT_BODY_BRAND_FILTER = val || "__ALL__";
+  if (CURRENT_CAT) renderContent(CURRENT_CAT);
+}
+
+// ── 动态构建 Prompt ────────────────────────────────
+function buildPrompt(cat) {
+  const all     = DATA.heat.filter(r => r.cat === cat);
+  const flavors = all.filter(r => r.dim === "口味").sort((a,b) => b.psd - a.psd).slice(0,10);
+  const bodies  = all.filter(r => r.dim === "商品主体").sort((a,b) => b.psd - a.psd).slice(0,8);
+  const prices  = all.filter(r => r.dim === "价格带").sort((a,b) => b.score - a.score);
+  const blanks  = all.filter(r => r.signal === "⚡ 高需低供");
+
+  const fmt = r =>
+    `- ${r.tag}：销量PSD ${r.psd.toFixed(3)}，铺货转化率 ${(r.conv*100).toFixed(0)}%，毛利率 ${(r.margin*100).toFixed(1)}%，SKU ${r.sku}个${r.signal ? "（⚡高需低供）" : ""}`;
+  const fmtBody = r =>
+    `- 主体「${r.tag}」${r.brand ? `｜代表品牌「${r.brand}」` : ""}：销量PSD ${r.psd.toFixed(3)}，铺货转化率 ${(r.conv*100).toFixed(0)}%，毛利率 ${(r.margin*100).toFixed(1)}%，SKU ${r.sku}个${r.signal ? "（⚡高需低供）" : ""}`;
+
+  return `你是一位专业的快消品采购顾问，正在为便利店采购团队提供选品建议。
+
+以下是【${cat}】品类的销售数据分析结果：
+
+【口味标签数据（按销量PSD排序）】
+${flavors.map(fmt).join("\n") || "（无数据）"}
+
+【商品主体数据（按销量PSD排序）】
+${bodies.map(fmtBody).join("\n") || "（无数据）"}
+
+【价格带数据（按热度评分排序）】
+${prices.map(r => `- ${r.tag}：热度 ${r.score.toFixed(2)}，销量PSD ${r.psd.toFixed(3)}，铺货转化率 ${(r.conv*100).toFixed(0)}%，SKU ${r.sku}个`).join("\n") || "（无数据）"}
+
+【高需低供空白机会】
+${blanks.length ? blanks.map(r => `- ${r.dim}「${r.tag}」${r.brand ? `｜品牌「${r.brand}」` : ""}：销量PSD ${r.psd.toFixed(3)}，铺货转化率 ${(r.conv*100).toFixed(0)}%，仅 ${r.sku} 个SKU`).join("\n") : "暂无"}
+
+请基于以上数据，给采购人员提供：
+1. 当前消费者接受度最高的特征组合（已验证方向）
+2. 明确的空白开发机会（高热但SKU少）
+3. 具体建议开发的3-5款新品方向（给出口味×主体×规格×价格的具体组合）
+4. 应该避免或谨慎的方向
+
+语言简洁、专业、直接，使用采购人员熟悉的行业语言，每个结论要有数据支撑。`;
+}
+
+// ── AI 报告生成 ────────────────────────────────────
+async function generateReport() {
+  const btn = document.getElementById("btn-generate");
+  const box = document.getElementById("report-box");
+  btn.disabled = true;
+  btn.textContent = "生成中…";
+  box.innerHTML = `<span style="color:var(--muted)">正在分析数据<span class="loading-dots"><span>.</span><span>.</span><span>.</span></span></span>`;
+
+  try {
+    const resp = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 1000,
+        messages: [{ role: "user", content: buildPrompt(CURRENT_CAT) }]
+      })
+    });
+    const data = await resp.json();
+    const text = data.content?.map(c => c.text || "").join("") || "（生成失败，请重试）";
+    box.innerHTML = text
+      .split("\n\n").filter(Boolean)
+      .map(p => `<p style="margin-bottom:14px">${p.replace(/\n/g,"<br>")}</p>`)
+      .join("");
+    btn.textContent = "重新生成";
+    btn.disabled = false;
+  } catch (e) {
+    box.innerHTML = `<span style="color:#c8401a">网络错误，请检查连接后重试。</span>`;
+    btn.textContent = "重试";
+    btn.disabled = false;
+  }
+}
+
+loadData();
+</script>
+</body>
+</html>
