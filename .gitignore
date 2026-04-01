@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local data and generated artifacts
+data/*.xlsx
+*.xlsx
+*.json
