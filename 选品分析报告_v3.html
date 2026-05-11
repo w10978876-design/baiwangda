@@ -162,7 +162,7 @@
 // file:// 或 Cursor 内置预览常无法 fetch 本地 JSON → 请用下方「选择 JSON」或本地 HTTP 服务
 // ══════════════════════════════════════════════════
 const JSON_BASENAME = "商品标签热度分析_热度数据.json";
-/** GitHub Pages 等静态托管：同目录放置 sku_predictions_static.json（方案 A：预生成预测，客户无需 API） */
+/** 同目录 sku_predictions_static.json 的 by_cat 与热度 JSON 顶层 sku_predictions_by_cat 可并存：同品类键以静态文件为准（Pages 更新 push 后不被热度里旧字段盖掉），热度 JSON 仅补缺品类。 */
 const STATIC_PRED_BASENAME = "sku_predictions_static.json";
 
 /** 预生成预测：按品类短文本；fetch 成功且含 by_cat 时启用 */
@@ -233,6 +233,12 @@ function resolveStaticPredFetchUrl() {
   }
 }
 
+/** 静态预测 fetch URL，带时间戳避免 CDN/浏览器返回旧 json */
+function resolveStaticPredFetchUrlBusted() {
+  const u = resolveStaticPredFetchUrl();
+  return u + (String(u).includes("?") ? "&" : "?") + "_=" + encodeURIComponent(String(Date.now()));
+}
+
 async function applyStaticPredFetchResponse(predResp) {
   STATIC_SKU_PRED_BY_CAT = null;
   window.__STATIC_SKU_PRED_META__ = null;
@@ -247,6 +253,26 @@ async function applyStaticPredFetchResponse(predResp) {
       };
     }
   } catch (e) {}
+}
+
+/** 若热度 JSON 含 sku_predictions_by_cat，则合并到 STATIC：同 key 以 sku_predictions_static.json 已加载内容为准，热度侧仅补缺。 */
+function hydrateSkuPredictionsFromData() {
+  if (!DATA) return;
+  const fromData = DATA.sku_predictions_by_cat;
+  if (!fromData || typeof fromData !== "object") return;
+  if (!STATIC_SKU_PRED_BY_CAT || typeof STATIC_SKU_PRED_BY_CAT !== "object") {
+    STATIC_SKU_PRED_BY_CAT = {};
+  }
+  for (const k of Object.keys(fromData)) {
+    const v = fromData[k];
+    if (v == null || !String(v).trim()) continue;
+    const existing = STATIC_SKU_PRED_BY_CAT[k];
+    if (existing != null && String(existing).trim()) continue;
+    STATIC_SKU_PRED_BY_CAT[k] = String(v).trim();
+  }
+  window.__STATIC_SKU_PRED_META__ = window.__STATIC_SKU_PRED_META__ || { generated_at: "", note: "" };
+  const dn = DATA.sku_predictions_note != null ? String(DATA.sku_predictions_note).trim() : "";
+  if (dn) window.__STATIC_SKU_PRED_META__.note = dn;
 }
 
 function showLoadError(triedUrl, err) {
@@ -280,8 +306,9 @@ function showLoadError(triedUrl, err) {
         try {
           DATA = JSON.parse(r.result);
           try {
-            const pr = await fetch(resolveStaticPredFetchUrl(), { cache: "no-store" });
+            const pr = await fetch(resolveStaticPredFetchUrlBusted(), { cache: "no-store" });
             await applyStaticPredFetchResponse(pr);
+            hydrateSkuPredictionsFromData();
           } catch (e3) {}
           init();
         } catch (e2) {
@@ -299,22 +326,24 @@ async function loadData() {
   if (window.__EMBEDDED_DATA__) {
     DATA = window.__EMBEDDED_DATA__;
     try {
-      const pr = await fetch(resolveStaticPredFetchUrl(), { cache: "no-store" });
+      const pr = await fetch(resolveStaticPredFetchUrlBusted(), { cache: "no-store" });
       await applyStaticPredFetchResponse(pr);
     } catch (e) {}
+    hydrateSkuPredictionsFromData();
     init();
     return;
   }
   const fetchUrl = resolveJsonFetchUrl();
-  const predUrl = resolveStaticPredFetchUrl();
+  const predUrlBust = resolveStaticPredFetchUrlBusted();
   try {
     const [resp, predResp] = await Promise.all([
       fetch(fetchUrl),
-      fetch(predUrl, { cache: "no-store" }).catch(() => ({ ok: false })),
+      fetch(predUrlBust, { cache: "no-store" }).catch(() => ({ ok: false })),
     ]);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
     DATA = await resp.json();
     await applyStaticPredFetchResponse(predResp);
+    hydrateSkuPredictionsFromData();
     init();
   } catch (e) {
     showLoadError(fetchUrl, e);
@@ -653,6 +682,8 @@ function renderContent(cat) {
             <div class="pred-tools" id="pred-tools-wrap">
               <input type="password" id="sku-pred-api-key" placeholder="DashScope（千问）或 Anthropic API Key" autocomplete="off">
               <button type="button" class="btn-pred" id="btn-sku-pred" onclick="generateSkuPrediction()">生成预测</button>
+              <button type="button" class="btn-pred btn-pred-secondary" onclick="copyPredictionJsonLineForPages()">复制本品类 JSON 一行</button>
+              <p style="flex-basis:100%;margin:4px 0 0;font-size:0.72rem;color:var(--muted);line-height:1.55">给客户看 GitHub Pages：各品类生成后点「复制 JSON 一行」→ 打开仓库里 <code>sku_predictions_static.json</code> → 粘到 <code>by_cat</code> 里（每行末尾逗号，最后一项不要逗号）→ 保存后 <code>git push</code>。</p>
             </div>
           </div>
         </div>
@@ -719,7 +750,7 @@ function applyStaticSkuPredictionIfAny(cat) {
     out.classList.add("is-static");
     wrap.classList.add("is-hidden");
     if (head) {
-      head.textContent = "📌 预生成「商品预测」全文（与上方数据初稿不同，为企划演绎；客户只读）";
+      head.textContent = "📌 预生成「商品预测」全文（优先展示「sku_predictions_static.json」中本品类；若仅有热度 JSON 内 sku_predictions_by_cat 亦可）";
       head.classList.add("visible");
     }
     let note =
@@ -931,13 +962,38 @@ function buildSkuPredictionPrompt(cat) {
   const dimCtx =
     "\n- 主体/口味/规格（初稿）说明：在「热度排序前列」子集中，先剔除 **SKU 数相对极少数** 的尾项（小众规格/长尾标签易因样本少在评分上冒尖），再在余下项中按**热度为主、覆盖地区数与总销量为辅**择优。**若仍与品类下大众主流（常见规格带、主力口味与主体组合）不符，你必须用常识在【四要素】中校正**，并在【修正说明】中简要说明。";
 
+  const draftBlob = `${cat}\n${d.bodyTag}\n${d.specLabel}\n${d.flavorTag}`;
+  const potatoSnackLike =
+    /薯片|土豆片|马铃薯片|薯格|薯圈|大波浪|原切薯|膨化|虾条|米饼|锅巴|玉米片|山药脆|脆片/i.test(draftBlob);
+  const flavorIsSweetChoco = /可可|巧克力|黑巧|布朗尼|蛋糕|提拉米苏|牛奶巧克力|^\s*甜味/i.test(
+    String(d.flavorTag || "")
+  );
+  const saltyPotatoBlock =
+    potatoSnackLike && !flavorIsSweetChoco
+      ? `\n\n**薯类/咸味膨化（当前初稿含薯类或典型咸味脆片语义，且口味「${d.flavorTag}」非可可/巧克力等明确甜向标签）须遵守**：【预测商品】主轴须落在**咸鲜、辣香、烧烤、番茄、海苔、芝士/奶酪风味粉、芥末、泡菜、柠檬盐、海鲜、减油减盐、分区双味、克重与场景**等常见企划方向。**禁止**以巧克力、可可、布朗尼、蛋糕口感、流心、甜品式「薯饼」等为主结论或主商品名——上述属甜点/烘焙语境，与当前咸味初稿**不得硬嫁接**；为「避原味」而写巧克力薯饼类组合一律不合格，须改写并在【修正说明】写明已回到咸向增量。甜咸复合（如蜂蜜黄油）仅可克制提及，不得压过盐味主轴。`
+      : "";
+
+  const ambientDairyBlock =
+    cat === "常温乳品"
+      ? `\n\n**温层与品类归属（当前【品类】为「常温乳品」须遵守）**：【预测商品】与【四要素】须落在**常温分销、可在常温货架主力陈列**的典型形态（如 UHT 灭菌纯奶/调制乳、无菌砖/瓶装、复原乳、奶粉、常温利乐装中性含乳饮料等，仍不写品牌）。**严禁**将以**冷藏冷链、冷柜必存**为前提的品类作为**主推**结论，包括但不限于：**巴氏杀菌鲜奶主力款、冷藏柜即饮鲜奶/鲜牛乳、短保活菌型冷藏乳饮品、门店现制冷饮鲜奶、以「冷藏即饮」「冷鲜直饮」为核心卖点的日常乳饮**——上述归属「日配冷藏」或低温乳品域，与「常温乳品」**不得混写**。若初稿或联想出现鲜奶/冷藏即饮语义，须改写为常温侧可落地增量（蛋白梯度、减糖、便携规格、常温酸奶/中性乳风味延展等），并在【修正说明】首句写明「品类限定常温，已排除冷藏即饮主推」。`
+      : "";
+
+  const instantFoodBlock =
+    cat === "方便速食"
+      ? `\n\n**方便速食（当前【品类】须遵守）**：企划须落在**常温方便货架、热水/微波即食、自热、或明确冷冻统一复热**等常见形态（杯面/袋面、速食粉与米线、自热锅、冻干粥汤块、常温菜肴/浇头酱包、冷冻面点复热等，不写品牌）。**严禁**将【预测商品】主场景写成**日配冷藏冷柜鲜食面专柜、冷鲜即食面吧**等——本品类名不含「日配冷藏」时，**不得**把冷藏冷柜当作主推陈列与食用前提。**工艺须像真实一款货**：面/粉体与肉蛋菜、汤底、蛋白料的**水分活度、杀菌等级、短保/常温干燥/冷冻**须一致；**禁止**把**短保鲜湿面/鲜面**与**冻干鸡肉/冻干蛋白块**在无「分仓料包、复水次序、或全冻品统一」等合理解释时硬拼成「一泡即同时成立」的离奇单品——若初稿统计标签导致矛盾，须改为货架常态之一（如干燥面饼+酱包+脱水肉粒；或鲜湿面+常温杀菌湿料理包；或全冻品面+冷冻浇头），并在【修正说明】写明「已统一为一种可量产工艺路径」。`
+      : "";
+
   return `你是一位在快消企业做过**真实开品与上市**的资深商品研发（熟悉便利店渠道规格梯度、包材与陈列、成本毛利与供应链可行性）。你的产出必须符合**基本商品逻辑**：口味×主体×品类习惯自洽；规格与包装形态、条码单位合理；价格带与规格、渠道定位匹配；像可立项的 SKU/系列，而非营销口号或无法落地的概念组合。
 
 **可食用性与品类基本属性（全品类须遵守）**：【预测商品】与【四要素】中的主体、口味、馅料/流心/夹心/涂层描述必须**真实可食用、可工业化量产**，并符合该品类在货架上的**基本约定与消费场景**。**禁止**为造噱头把互不兼容的调味体系、互不兼容的「味型命名」硬塞进**同一单品、同一馅心/流心**里，尤其禁止把统计标签机械拼接成**理化与品类常识明显矛盾**的句子。**典型不合格示例（须避免，若初稿接近则必须改写）**：速冻**汤圆/元宵**等糯米外皮、甜点心语境下，出现**奥尔良、烧烤、孜然、麻辣、火锅底料**等典型**咸味肉制品/快餐烧烤**调味体系与「黑芝麻流心」「花生流心」等甜馅叙事**混成一款**的离奇组合——此类在真实配方与消费认知上均不成立，一律视为不合格，须在【四要素】与【预测商品】中改为**单一清晰、可落地的味型与结构**（甜馅体系内创新、或改为主体为真正匹配该咸味的品类，仍不写品牌），并在【修正说明】写明「初稿违背品类基本属性/可食用性，已校正」。**冷冻食品、米面、烘焙、乳品等**均须自检：味型是否与主体形态、加热方式、甜咸边界一致；不得输出明显**非食品、不可吞咽、不可上市**的设定。
 
-**口味×主体的市场现实（须遵守）**：「自洽」指**不与成熟货架与消费常识明显冲突**，不等于「个人主观觉得新奇」。便利店与商超里**已长期存在**的味型×基底组合（例如咸味膨化/薯片类上的**可可、巧克力、芝士、蜂蜜黄油、海苔、泡菜**等调味或涂层结构），**不得以**「马铃薯本味与××冲突」「感知违和」等理由在【修正说明】里否定为「严重违背口味×主体」——除非涉及**明显不可工业化落地**或法规/过敏原等硬约束。若初稿恰好落在这类**已被市场验证多年**的组合上，应承认其合理性，把笔墨放在**规格、价位、场景、质地或健康诉求改版**等可开品维度，而非虚构「逻辑错误」。
+**工艺形态与温层自洽（全品类须遵守）**：面/粉/米与肉蛋菜、汤底、蛋白料的组合，须落在**同一种典型贮藏与食用方式**下可成立（如常温干燥+热水复水；或全品冷冻统一复热；或短保鲜食全程冷藏并在保质期内食用等）。**禁止**把**短保鲜湿面/鲜面**与仅适配常温干燥单元的**冻干大块肉/冻干蛋白**等，在无分料包、复水次序或全冻品叙事时写成「一泡即同时合理」的离奇单品；**禁止**把明显属于**日配冷藏冷柜**的陈列与食用节奏写成本品类的**主推场景**，除非【品类】名称本身即为「日配冷藏」等低温鲜食类。
 
-**【预测商品】的定位与排除（须遵守）**：【预测商品】须指向**仍有开品与企划讨论价值**的方向（风味延展、结构/质地升级、场景与规格×价位新组合、清洁标签/减负担改版等）。**禁止**把渠道里**已高度成熟、多年常态渗透**的「基准款」「原味/本味占主导的常规单品形态」当作预测结论——例如仅写「原味薯片」「基础盐味膨化」「常规单一口味无增量」等**无差异化增量**的表述，视为不合格；应改为在**同一品类内**给出带**明确增量**、仍不写品牌的可立项方向（复合味型、限定场景、新规格带与主力价的匹配等）。若【数据初稿】落在上述成熟基准上，【四要素】与【预测商品】必须**主动迁出**到更有企划价值的组合，并在【修正说明】中一句话交代「初稿偏成熟基准品，已改为增量方向」。
+**口味×主体的市场现实（须遵守）**：「自洽」指**不与成熟货架与消费常识明显冲突**。甜味、巧克力、布朗尼、蛋糕、流心等叙事**默认属于**甜点、冰淇淋、部分烘焙语境；**不得**仅为满足「须有企划增量」而把上述元素强加到**初稿明显为咸味体系**的单品上。偶有小众「甜咸复合脆片」不等于本任务应优先输出的方向——【预测商品】应优先沿初稿**口味×主体**所暗示的咸鲜主轴，做地域味、辣度梯度、减油减盐、规格与场景等增量。若【数据初稿】「口味」本身已是可可、巧克力等**明确甜向统计标签**，方可自然延展甜向开品。
+
+**肉制品、烤肠、即食肠类（当【数据初稿】主体为烤肠/香肠/脆骨肠等时须遵守）**：黑胡椒、芝士、玉米、奥尔良等味型常见，但表述须符合**肉制品工业习惯**（调味、颗粒、灌芯、爆汁等）。**禁止**把烘焙甜品式的「××流心」与多种味型名词**硬堆成一款**离奇口号（例如「黑椒芝士流心烤肠」式多重不兼容叙事）；若需「增量」，优先**场景、规格、清洁标签、减盐、部位肉质表述**等，而非虚构甜点化结构。
+
+**【预测商品】的定位与排除（须遵守）**：【预测商品】须指向**仍有开品与企划讨论价值**的方向（风味延展、在货架已有先例的结构/质地微调、场景与规格×价位新组合、清洁标签/减负担改版等）。**禁止**把渠道里**已高度成熟、多年常态渗透**的「基准款」「原味/本味占主导的常规单品形态」当作**唯一**预测结论——例如通篇仅写「只做原味薯片、再无别的」这类**完全无讨论空间**的表述；但**允许**在承认基准盘的前提下，写出**带明确增量且仍合常识**的方向（如双味、区域味、减油减盐、规格带微调、场景限定等）。**禁止**靠堆砌**非常规多层结构词**（滥用「流心」「夹层」等）凑「增量」而违背品类基本形态常识。若【数据初稿】落在成熟基准上，【四要素】与【预测商品】须在**不编造离奇结构**的前提下迁向可立项增量，并在【修正说明】中交代依据。
 
 **标签与规格的通识（跨品类，须遵守）**：统计「热度」来自多指标合成，**不等于**「市场上最常见、最值得跟进的单品形态」。SKU 很少的标签往往在热度上不稳定，不宜直接代表品类主力；你必须结合【品类】判断初稿的主体、口味、规格是否代表**大众日常货架的主力结构**。若初稿明显小众或与常识冲突，**在【四要素】中给出更合理的通用表述**（仍不得写品牌），并在【修正说明】中写明依据。
 
@@ -945,7 +1001,7 @@ function buildSkuPredictionPrompt(cat) {
 
 **酒类与酒精饮品常识（当【品类】为「酒类」或【四要素】出现啤酒/葡萄酒/黄酒/洋酒/白酒/预调酒等时须遵守）**：**酒精度、工艺与品类名称必须一致**，不得出现与真实货架与理化常识冲突的表述。**严禁**把典型**低度**的啤酒写成与白酒、伏特加同档的**高度数**（例如「四十多度的啤酒」「42°啤酒」等一律视为不合格）；若初稿或联想中出现此类错位，必须在【四要素】与【预测商品】中**按正确酒种与常见酒精度带改写**，并在【修正说明】中点明已校正。**葡萄酒、洋酒（威士忌等蒸馏酒）、黄酒、白酒、预调酒**各自的风味逻辑、常见装瓶与度数表述不得混用——不得把只适合某一酒种的叙事硬套到另一酒种。**口味×酒种**须对齐**市场上真实存在的组合与工艺路径**（如啤酒侧：麦香、酒花、小麦/白啤、黑啤、IPA、常见果香增味等；葡萄酒侧：品种与典型风格方向等），禁止为追热点编造与同品类常识明显矛盾的商品定义。
 
-**硬性约束（违反视为不合格）**：在【预测商品】【四要素】【市场热度归纳】【修正说明】四处正文中，**一律不得出现**任何品牌名、商标、企业名、渠道代号，以及「××##」式掩码品牌；不得用可识别到具体公司的昵称。主体、场景、渠道仅用**通用品类/业态**表述（如「便利店鲜食」「常见烘焙连锁」等无识别指向说法）。**不得输出明显不可食用、非食品可实现、或与该品类基本属性（甜咸边界、馅心结构、酒种与酒精度等）明显矛盾的味型×主体结构**。**酒类相关输出不得出现酒精度与酒种错位、或与该酒种工艺常识明显矛盾的基本错误**（如高度数啤酒）。${brandClusterHint}
+**硬性约束（违反视为不合格）**：在【预测商品】【四要素】【市场热度归纳】【修正说明】四处正文中，**一律不得出现**任何品牌名、商标、企业名、渠道代号，以及「××##」式掩码品牌；不得用可识别到具体公司的昵称。主体、场景、渠道仅用**通用品类/业态**表述（如「便利店鲜食」「常见烘焙连锁」等无识别指向说法）。**品类温层**：【品类】名称中的**常温 / 冷藏 / 冷冻 / 日配**等语义须与【预测商品】的**贮藏条件、渠道陈列与供应链前提**一致——**常温乳品不得主推冷藏即饮鲜奶、冷柜短保鲜奶类**；「日配冷藏」类不宜把仅适合常温长途贩运的企划当作冷柜主力替代。**「方便速食」**（名称未含冷藏日配时）**不得**将主推写成**日配冷藏冷柜鲜食面**等错位场景。**不得输出明显不可食用、非食品可实现、或与该品类基本属性（甜咸边界、馅心结构、酒种与酒精度等）明显矛盾的味型×主体结构**。**酒类相关输出不得出现酒精度与酒种错位、或与该酒种工艺常识明显矛盾的基本错误**（如高度数啤酒）。${brandClusterHint}
 
 **时间与「资讯/数据」表述（须遵守）**：以 **2026 年** 为当前时点。凡涉及市场、渠道、动销、研报、统计口径的**时间锚点**，**不得早于 2025 年**——不得写出 **2024、2023 及更早** 的年份或「2024年Q1/Q2」「去年」「前年」等作为**事实性引用**。**禁止编造**带具体年份、季度、百分比的所谓公开数据（例如「（2024年Q2冷链饮品动销数据显示该规格占…68%）」这类句式一律不得出现）。若无法给出可在 **2025–2026** 语境下成立的表述，只写**方向性、非量化**的趋势，并标「（行业推断）」。
 
@@ -957,7 +1013,7 @@ function buildSkuPredictionPrompt(cat) {
 - 商品主体：${d.bodyTag}
 - 规格数值：${d.specLabel}
 - 口味：${d.flavorTag}
-- 价格带（初稿）：${d.priceTag}${dimCtx}${priceCtx}
+- 价格带（初稿）：${d.priceTag}${dimCtx}${priceCtx}${saltyPotatoBlock}${ambientDairyBlock}${instantFoodBlock}
 
 请**严格按下面顺序**输出（**先结论、后解释**；不要使用 markdown 代码围栏；在【四要素】结束后单独起一行，只写五个短横线「-----」，再写后续段落）：
 
@@ -1106,6 +1162,7 @@ async function generateSkuPrediction() {
         body: JSON.stringify({
           model: qModel,
           max_tokens: 1600,
+          temperature: 0.55,
           messages: [{ role: "user", content: prompt }],
         }),
       });
@@ -1130,6 +1187,7 @@ async function generateSkuPrediction() {
         body: JSON.stringify({
           model: "claude-3-5-sonnet-20241022",
           max_tokens: 1600,
+          temperature: 0.55,
           messages: [{ role: "user", content: prompt }],
         }),
       });
@@ -1163,6 +1221,46 @@ async function generateSkuPrediction() {
 function onBodyBrandFilterChange(val) {
   CURRENT_BODY_BRAND_FILTER = val || "__ALL__";
   if (CURRENT_CAT) renderContent(CURRENT_CAT);
+}
+
+/** 把当前品类预测正文复制成一行合法 JSON，便于粘进 sku_predictions_static.json 的 by_cat，再 push 上 Pages */
+function copyPredictionJsonLineForPages() {
+  const cat = CURRENT_CAT;
+  const out = document.getElementById("pred-llm-out");
+  if (!cat || !out) return;
+  const raw = (out.textContent || "").trim();
+  if (!raw || raw === "生成中…" || raw.startsWith("调用失败")) {
+    alert("请先在当前品类下成功点「生成预测」，再点本按钮。");
+    return;
+  }
+  const line = JSON.stringify(cat) + ": " + JSON.stringify(raw) + ",";
+  const fallbackCopy = (t) => {
+    const ta = document.createElement("textarea");
+    ta.value = t;
+    ta.style.position = "fixed";
+    ta.style.left = "-9999px";
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      return document.execCommand("copy");
+    } finally {
+      document.body.removeChild(ta);
+    }
+  };
+  const done = () =>
+    alert(
+      "已复制一行。打开「sku_predictions_static.json」，在 \"by_cat\": { 与 } 之间粘贴；多行时每行末尾保留逗号，最后一行去掉末尾逗号。保存后 git push，等 Pages 刷新。"
+    );
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(line).then(done).catch(() => {
+      if (fallbackCopy(line)) done();
+      else alert("复制失败，请手动全选灰色框内文字。");
+    });
+  } else {
+    if (fallbackCopy(line)) done();
+    else alert("复制失败，请手动全选灰色框内文字。");
+  }
 }
 
 // ── 动态构建 Prompt（临时停用，保留代码）──────────────
