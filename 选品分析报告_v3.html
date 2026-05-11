@@ -114,6 +114,10 @@
   .pred-mini strong { font-weight: 700; color: var(--accent); }
   .pred-out { margin-top: 10px; font-size: 0.82rem; line-height: 1.75; color: var(--ink); white-space: pre-wrap; max-height: 240px; overflow-y: auto; padding: 10px; background: #fff; border: 1px solid var(--rule); border-radius: 2px; }
   .pred-out.is-static { max-height: min(70vh, 520px); border-color: var(--accent); border-width: 1px 1px 1px 3px; }
+  .pred-out .pred-pages-fold { margin-top: 10px; }
+  .pred-out .pred-pages-fold > summary { cursor: pointer; font-size: 0.78rem; color: var(--muted); letter-spacing: 0.04em; user-select: none; list-style: none; }
+  .pred-out .pred-pages-fold > summary::-webkit-details-marker { display: none; }
+  .pred-out .pred-pages-fold-body { margin-top: 8px; font-size: 0.82rem; line-height: 1.75; color: var(--ink); white-space: pre-wrap; }
   .pred-static-head { display: none; margin-top: 10px; margin-bottom: 6px; font-size: 0.88rem; font-weight: 700; color: var(--accent); letter-spacing: 0.06em; }
   .pred-static-head.visible { display: block; }
   .pred-static-note { display: none; margin-top: 8px; font-size: 0.72rem; color: var(--muted); line-height: 1.5; padding: 6px 8px; background: #f0ebe0; border: 1px dashed var(--rule); }
@@ -237,6 +241,50 @@ function resolveStaticPredFetchUrl() {
 function resolveStaticPredFetchUrlBusted() {
   const u = resolveStaticPredFetchUrl();
   return u + (String(u).includes("?") ? "&" : "?") + "_=" + encodeURIComponent(String(Date.now()));
+}
+
+/** 当前为 GitHub Pages 线上域时：客户视图不展示预生成说明条、不展示 json 元信息徽章；并折叠「-----」后支撑段 */
+function isGitHubPagesHost() {
+  const h = (location.hostname || "").toLowerCase();
+  return h === "github.io" || h.endsWith(".github.io");
+}
+
+/**
+ * 静态预测正文写入 #pred-llm-out。本地：整段 plain text。Pages：以首个「换行 + ----- + 换行」为界，其后收入 <details> 默认折叠。
+ */
+function renderStaticPredForHost(out, text) {
+  if (!out) return;
+  out.textContent = "";
+  out.innerHTML = "";
+  const full = String(text || "").replace(/\r\n/g, "\n").trimEnd();
+  if (!isGitHubPagesHost()) {
+    out.textContent = full + (full ? "\n" : "");
+    return;
+  }
+  const sep = /\n-----\s*\n/;
+  const idx = sep.exec(full);
+  if (!idx) {
+    out.textContent = full + (full ? "\n" : "");
+    return;
+  }
+  const headPart = full.slice(0, idx.index).trimEnd();
+  const tailPart = full.slice(idx.index + idx[0].length).trim();
+  const pre = document.createElement("div");
+  pre.style.whiteSpace = "pre-wrap";
+  pre.textContent = headPart;
+  out.appendChild(pre);
+  if (tailPart) {
+    const det = document.createElement("details");
+    det.className = "pred-pages-fold";
+    const sum = document.createElement("summary");
+    sum.textContent = "展开：市场热度归纳与修正说明";
+    const body = document.createElement("div");
+    body.className = "pred-pages-fold-body";
+    body.textContent = "-----\n\n" + tailPart;
+    det.appendChild(sum);
+    det.appendChild(body);
+    out.appendChild(det);
+  }
 }
 
 async function applyStaticPredFetchResponse(predResp) {
@@ -746,19 +794,29 @@ function applyStaticSkuPredictionIfAny(cat) {
   const text = raw != null ? String(raw).trim() : "";
   if (text) {
     out.style.display = "block";
-    out.textContent = text;
     out.classList.add("is-static");
     wrap.classList.add("is-hidden");
-    if (head) {
-      head.textContent = "📌 预生成「商品预测」全文（优先展示「sku_predictions_static.json」中本品类；若仅有热度 JSON 内 sku_predictions_by_cat 亦可）";
-      head.classList.add("visible");
+    renderStaticPredForHost(out, text);
+    if (isGitHubPagesHost()) {
+      if (head) {
+        head.classList.remove("visible");
+        head.textContent = "";
+      }
+      badge.classList.remove("visible");
+      badge.textContent = "";
+    } else {
+      if (head) {
+        head.textContent =
+          "📌 预生成「商品预测」全文（优先展示「sku_predictions_static.json」中本品类；若仅有热度 JSON 内 sku_predictions_by_cat 亦可）";
+        head.classList.add("visible");
+      }
+      let note =
+        "本品类为预生成演示文案，访问方无需 API。更新请替换仓库内「" + STATIC_PRED_BASENAME + "」中对应品类。";
+      if (meta && meta.generated_at) note = "预生成时间：" + meta.generated_at + "。" + note;
+      if (meta && meta.note) note = String(meta.note).trim() + " " + note;
+      badge.textContent = note;
+      badge.classList.add("visible");
     }
-    let note =
-      "本品类为预生成演示文案，访问方无需 API。更新请替换仓库内「" + STATIC_PRED_BASENAME + "」中对应品类。";
-    if (meta && meta.generated_at) note = "预生成时间：" + meta.generated_at + "。" + note;
-    if (meta && meta.note) note = String(meta.note).trim() + " " + note;
-    badge.textContent = note;
-    badge.classList.add("visible");
     return;
   }
   out.style.display = "none";
