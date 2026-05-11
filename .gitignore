@@ -6,3 +6,5 @@ __pycache__/
 data/*.xlsx
 *.xlsx
 *.json
+# 允许把报告用 JSON 推到 GitHub Pages（其它 .json 仍忽略）
+!商品标签热度分析_热度数据.json
