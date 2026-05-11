@@ -8,3 +8,7 @@ data/*.xlsx
 *.json
 # 允许把报告用 JSON 推到 GitHub Pages（其它 .json 仍忽略）
 !商品标签热度分析_热度数据.json
+!sku_predictions_static.json
+
+# 本地 API 密钥（勿提交）
+local_settings.js

@@ -108,6 +108,23 @@
 
   .fade-in { animation: fadeIn 0.4s ease; }
   @keyframes fadeIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:translateY(0)} }
+
+  .matrix-trend-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; grid-column: 1 / -1; align-items: stretch; }
+  .pred-mini { font-size: 0.8rem; line-height: 1.65; color: var(--ink); margin-top: 6px; }
+  .pred-mini strong { font-weight: 700; color: var(--accent); }
+  .pred-out { margin-top: 10px; font-size: 0.82rem; line-height: 1.75; color: var(--ink); white-space: pre-wrap; max-height: 240px; overflow-y: auto; padding: 10px; background: #fff; border: 1px solid var(--rule); border-radius: 2px; }
+  .pred-out.is-static { max-height: min(70vh, 520px); }
+  .pred-static-note { display: none; margin-top: 8px; font-size: 0.72rem; color: var(--muted); line-height: 1.5; padding: 6px 8px; background: #f0ebe0; border: 1px dashed var(--rule); }
+  .pred-static-note.visible { display: block; }
+  .pred-tools { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .pred-tools input[type="password"] { flex: 1; min-width: 120px; border: 1px solid var(--rule); padding: 6px 8px; font-size: 0.75rem; font-family: 'DM Mono', monospace; }
+  .btn-pred { background: var(--ink); color: var(--paper); border: none; padding: 8px 14px; font-family: 'Noto Serif SC', serif; font-size: 0.8rem; cursor: pointer; letter-spacing: 0.06em; transition: background 0.2s; }
+  .btn-pred:hover { background: var(--accent); }
+  .btn-pred:disabled { background: var(--muted); cursor: not-allowed; }
+  .btn-pred-secondary { background: #5c5348; }
+  @media (max-width: 820px) {
+    .matrix-trend-pair { grid-template-columns: 1fr; }
+  }
 </style>
 </head>
 <body>
@@ -132,13 +149,21 @@
   <div class="content"  id="content"><div class="state-msg">正在加载…</div></div>
 </div>
 
+<!-- 可选：同目录下放 local_settings.js；?v= 用于避免浏览器缓存旧 404 -->
+<script src="local_settings.js?v=3"></script>
 <script>
 // ══════════════════════════════════════════════════
 // 配置：JSON 与 fmcg_analysis_v3.py 输出一致（脚本目录下 商品标签热度分析_热度数据.json）
 // 可选：?data=别的文件名.json  或  ?data=/绝对路径/xxx.json（同源时）
+// 可选：?pred=别的预生成预测.json（默认 sku_predictions_static.json，与报告同目录）
 // file:// 或 Cursor 内置预览常无法 fetch 本地 JSON → 请用下方「选择 JSON」或本地 HTTP 服务
 // ══════════════════════════════════════════════════
 const JSON_BASENAME = "商品标签热度分析_热度数据.json";
+/** GitHub Pages 等静态托管：同目录放置 sku_predictions_static.json（方案 A：预生成预测，客户无需 API） */
+const STATIC_PRED_BASENAME = "sku_predictions_static.json";
+
+/** 预生成预测：按品类短文本；fetch 成功且含 by_cat 时启用 */
+let STATIC_SKU_PRED_BY_CAT = null;
 
 /** 前端暂不展示的品类（数据仍在 JSON 中，仅隐藏入口） */
 const HIDDEN_CATEGORIES = new Set(["家居百货", "日化美护"]);
@@ -150,7 +175,7 @@ const RECENT_NEWS_BY_CAT = {
   "FF速食": [
     "乐##：官网长期商品中，关东煮（汪角鱼蛋、黄金肉包蛋）、烧烤系列（红油面筋串、魔辣霸王翅）、老南昌鲜汁大肉包、江西瓦罐汤等鲜食/热食结构稳定，属门店常规 FF 线。江西米粉系列（肉末拌粉、大骨熬制肉末配纯真米浆粉条等）属粉面线。",
     "乐##：3月1日（周一）推出新品日活动，霸王黑胡椒烤肠100g限时买一送一。",
-    "安###：招牌葡式蛋挞持续在售。",
+    "渠道B：招牌葡式蛋挞持续在售。",
     "邻#：品牌长期以“一日五餐”鲜食为特色，早餐主推烧麦、大肉包、鲜肉包等。",
     "罗#：周一现磨咖啡、面包甜心等与鲜食时段联动；草莓季主推甜品与季节性 FF 营销并行。"
   ],
@@ -163,16 +188,16 @@ const RECENT_NEWS_BY_CAT = {
   "方便速食": ["各品牌：本周期未见方便速食类专项公开信息。"],
   "日配冷藏": [
     "罗#：周四“冷藏品满39减10”，为日配冷藏类目的周期性促销机制。3月初草莓季，冰皮月亮蛋糕、脆脆糯米糍为当季主力，两件任选18.5元；草莓系列为华东、华中年度标志性营销表述。",
-    "壹###：以自有鲜牛奶为主推品类之一（与 NFC 果汁并列）。",
+    "渠道A：以自有鲜牛奶为主推品类之一（与 NFC 果汁并列）。",
     "乐##：冰皮蛋糕系列（星空冰皮、极光冰皮）。冰皮蛋糕更偏烘焙甜品，与零食场景有交叉。",
     "乐##：冰淇淋奶盖麻薯草莓味同步上架，单品规格2粒装100g，主打糯叽叽加奶fufu的冰爽口感。"
   ],
   "日配烘焙": ["罗#：周一面包及甜心小森系列2件8折、3件6.6折；周五面包5件及以上6.6折。"],
   "粮油调味": ["各品牌：本周期未见粮油、调味品类专项公开信息。"],
-  "酒类": ["安###：精酿啤酒持续在售，精酿啤酒为门店特色品类。"],
+  "酒类": ["渠道B：精酿啤酒持续在售，精酿啤酒为门店特色品类。"],
   "饮料": [
-    "壹###：主推自有 NFC 果汁。",
-    "安###：3月17日推出苹果汁或鲜椰水3次卡套餐，春日福利。"
+    "渠道A：主推自有 NFC 果汁。",
+    "渠道B：3月17日推出苹果汁或鲜椰水3次卡套餐，春日福利。"
   ]
 };
 
@@ -186,6 +211,34 @@ function resolveJsonFetchUrl() {
     }
   }
   return new URL(JSON_BASENAME, window.location.href).href;
+}
+
+function resolveStaticPredFetchUrl() {
+  const q = new URLSearchParams(window.location.search).get("pred");
+  if (q && q.trim()) {
+    try {
+      return new URL(q.trim(), window.location.href).href;
+    } catch (e) {
+      return q.trim();
+    }
+  }
+  return new URL(STATIC_PRED_BASENAME, window.location.href).href;
+}
+
+async function applyStaticPredFetchResponse(predResp) {
+  STATIC_SKU_PRED_BY_CAT = null;
+  window.__STATIC_SKU_PRED_META__ = null;
+  if (!predResp || !predResp.ok) return;
+  try {
+    const j = await predResp.json();
+    if (j && typeof j.by_cat === "object" && j.by_cat !== null) {
+      STATIC_SKU_PRED_BY_CAT = j.by_cat;
+      window.__STATIC_SKU_PRED_META__ = {
+        generated_at: j.generated_at != null ? String(j.generated_at) : "",
+        note: j.note != null ? String(j.note) : "",
+      };
+    }
+  } catch (e) {}
 }
 
 function showLoadError(triedUrl, err) {
@@ -215,9 +268,13 @@ function showLoadError(triedUrl, err) {
       const f = inp.files && inp.files[0];
       if (!f) return;
       const r = new FileReader();
-      r.onload = () => {
+      r.onload = async () => {
         try {
           DATA = JSON.parse(r.result);
+          try {
+            const pr = await fetch(resolveStaticPredFetchUrl());
+            await applyStaticPredFetchResponse(pr);
+          } catch (e3) {}
           init();
         } catch (e2) {
           alert("JSON 解析失败：" + e2.message);
@@ -233,14 +290,23 @@ async function loadData() {
   // Streamlit 嵌入场景：优先使用内嵌数据，避免同源 fetch 失败导致一直“加载中”
   if (window.__EMBEDDED_DATA__) {
     DATA = window.__EMBEDDED_DATA__;
+    try {
+      const pr = await fetch(resolveStaticPredFetchUrl());
+      await applyStaticPredFetchResponse(pr);
+    } catch (e) {}
     init();
     return;
   }
   const fetchUrl = resolveJsonFetchUrl();
+  const predUrl = resolveStaticPredFetchUrl();
   try {
-    const resp = await fetch(fetchUrl);
+    const [resp, predResp] = await Promise.all([
+      fetch(fetchUrl),
+      fetch(predUrl).catch(() => ({ ok: false })),
+    ]);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
     DATA = await resp.json();
+    await applyStaticPredFetchResponse(predResp);
     init();
   } catch (e) {
     showLoadError(fetchUrl, e);
@@ -269,6 +335,7 @@ function init() {
   ).join("");
 
   switchCat(cats[0], bar.querySelector(".cat-btn.active"));
+  void prefetchLocalLlmConfigFromDisk();
 }
 
 // ── 品类切换 ───────────────────────────────────────
@@ -350,6 +417,11 @@ function renderSidebar(cat) {
   }
 }
 
+/** 品牌筛查：不展示含壹度、安哒、安达（含安哒宝焙、壹度定制等）的选项 */
+function isExcludedBrandForFilter(brand) {
+  return /壹度|安哒|安达/.test(String(brand || "").trim());
+}
+
 // ── 主内容区 ───────────────────────────────────────
 function renderContent(cat) {
   const allRaw  = DATA.heat.filter(r => r.cat === cat);
@@ -357,12 +429,17 @@ function renderContent(cat) {
   const all = allRaw.filter(r => !(r.dim === "商品主体" && String(r.tag || "").includes("外卖")));
   const flavors = all.filter(r => r.dim === "口味").sort((a,b) => b.score - a.score);
   const bodyAll = all.filter(r => r.dim === "商品主体").sort((a,b) => b.score - a.score);
-  const brandOptions = [...new Set(bodyAll.map(r => (r.brand || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
+  if (CURRENT_BODY_BRAND_FILTER !== "__ALL__" && isExcludedBrandForFilter(CURRENT_BODY_BRAND_FILTER)) {
+    CURRENT_BODY_BRAND_FILTER = "__ALL__";
+  }
+  const brandOptions = [...new Set(bodyAll.map(r => (r.brand || "").trim()).filter(Boolean))]
+    .filter((b) => !isExcludedBrandForFilter(b))
+    .sort((a, b) => a.localeCompare(b, "zh-Hans-CN"));
   const bodies  = CURRENT_BODY_BRAND_FILTER === "__ALL__"
     ? bodyAll
     : bodyAll.filter(r => (r.brand || "").trim() === CURRENT_BODY_BRAND_FILTER);
   const prices  = all.filter(r => r.dim === "价格带").sort((a,b) => b.score - a.score);
-  const specs   = all.filter(r => r.dim === "规格数值").sort((a,b) => b.score - a.score);
+  const specs   = all.filter((r) => r.dim === "规格数值");
   const blanks  = all
     .filter(r => r.signal === "⚡ 高需低供")
     .filter(r => ["口味", "商品主体", "价格带"].includes(r.dim))
@@ -475,7 +552,7 @@ function renderContent(cat) {
       </tr>`).join("")}</tbody>
     </table>` : "<p style='color:var(--muted)'>暂无价格带数据</p>";
 
-  const topSpec = specs[0];
+  const topSpec = pickDraftDimRow(specs);
   // 单位必须来自该规格值的实际计算来源（主体/规格单位），不按大类猜测
   const topSpecUnit = topSpec ? String(topSpec.spec_unit || "").trim() : "";
   const topSpecSourceBody = topSpec ? String(topSpec.spec_source_body || "").trim() : "";
@@ -532,6 +609,10 @@ function renderContent(cat) {
   const recentNews = RECENT_NEWS_BY_CAT[cat] || ["本品类暂无近期资讯。"];
   const recentNewsHtml = recentNews.map(n => `<p style="margin-bottom:10px">- ${n}</p>`).join("");
 
+  const draftSku = computeDraftSku(cat);
+  const predDraftLine =
+    `数据初稿：主体 <strong>${escHtml(draftSku.bodyTag)}</strong> · 规格 <strong>${escHtml(draftSku.specLabel)}</strong> · 口味 <strong>${escHtml(draftSku.flavorTag)}</strong> · 价格带 <strong>${escHtml(draftSku.priceTag)}</strong>`;
+
   document.getElementById("content").innerHTML = `
   <div class="fade-in">
     <div class="section-head">
@@ -549,10 +630,22 @@ function renderContent(cat) {
     </div>
     <div class="section-body">
       <div class="matrix">
-        <div class="matrix-cell highlight">
-          <div class="matrix-cell-title">🔥 趋势方向</div>
-          <p>高销量PSD + SKU数量少，消费者有需求但货架供给不足</p>
-          <div style="margin-top:10px">${blankTags || "<span style='color:var(--muted);font-size:0.8rem'>暂无高需低供信号</span>"}</div>
+        <div class="matrix-trend-pair">
+          <div class="matrix-cell highlight">
+            <div class="matrix-cell-title">🔥 趋势方向</div>
+            <p>高销量PSD + SKU数量少，消费者有需求但货架供给不足</p>
+            <div style="margin-top:10px">${blankTags || "<span style='color:var(--muted);font-size:0.8rem'>暂无高需低供信号</span>"}</div>
+          </div>
+          <div class="matrix-cell highlight">
+            <div class="matrix-cell-title">🔮 研发预测商品</div>
+            <div class="pred-mini" id="pred-draft-line">${predDraftLine}</div>
+            <div class="pred-static-note" id="pred-static-badge"></div>
+            <div class="pred-tools" id="pred-tools-wrap">
+              <input type="password" id="sku-pred-api-key" placeholder="DashScope（千问）或 Anthropic API Key" autocomplete="off">
+              <button type="button" class="btn-pred" id="btn-sku-pred" onclick="generateSkuPrediction()">生成预测</button>
+            </div>
+            <div class="pred-out" id="pred-llm-out" style="display:none"></div>
+          </div>
         </div>
         <div class="matrix-cell highlight" style="grid-column:1/-1">
           <div class="matrix-cell-title">📦 价格带热度分布${topSpec ? "（最优规格值：" + topSpecLabel + "）" : ""}</div>
@@ -587,6 +680,466 @@ function renderContent(cat) {
       <!-- <button class="btn-generate" id="btn-generate" onclick="generateReport()">生成 AI 选品建议</button> -->
     </div>
   </div>`;
+
+  applyStaticSkuPredictionIfAny(cat);
+}
+
+/** 若已加载 sku_predictions_static.json 且含当前品类，则只读展示并隐藏 API 输入区（GitHub Pages 方案 A） */
+function applyStaticSkuPredictionIfAny(cat) {
+  const out = document.getElementById("pred-llm-out");
+  const wrap = document.getElementById("pred-tools-wrap");
+  const badge = document.getElementById("pred-static-badge");
+  const keyInput = document.getElementById("sku-pred-api-key");
+  if (!out || !wrap || !badge) return;
+  const meta = window.__STATIC_SKU_PRED_META__;
+  const map = STATIC_SKU_PRED_BY_CAT;
+  out.classList.remove("is-static");
+  badge.classList.remove("visible");
+  badge.textContent = "";
+  const raw = map && Object.prototype.hasOwnProperty.call(map, cat) ? map[cat] : null;
+  const text = raw != null ? String(raw).trim() : "";
+  if (text) {
+    out.style.display = "block";
+    out.textContent = text;
+    out.classList.add("is-static");
+    wrap.style.display = "none";
+    let note =
+      "本品类为预生成演示文案，访问方无需 API。更新请替换仓库内「" + STATIC_PRED_BASENAME + "」中对应品类。";
+    if (meta && meta.generated_at) note = "预生成时间：" + meta.generated_at + "。" + note;
+    if (meta && meta.note) note = String(meta.note).trim() + " " + note;
+    badge.textContent = note;
+    badge.classList.add("visible");
+    return;
+  }
+  out.style.display = "none";
+  out.textContent = "";
+  wrap.style.display = "";
+  if (keyInput) {
+    const sk = sessionStorage.getItem("sku_pred_key_cache") || sessionStorage.getItem("anthropic_key_sku");
+    const localK =
+      typeof window.__LOCAL_ANTHROPIC_KEY__ === "string" ? window.__LOCAL_ANTHROPIC_KEY__.trim() : "";
+    if (sk) keyInput.value = sk;
+    else if (localK) keyInput.placeholder = "已使用 local_settings.js 中的密钥，可直接点生成";
+  }
+}
+
+function escHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/"/g, "&quot;");
+}
+
+/** 解析价格带标签（与 fmcg_analysis_v3.PRICE_LABELS 分箱文案一致），得到大致元价位，用于剔除统计极端档 */
+function parsePriceBandMeta(tag) {
+  const s = String(tag || "");
+  let low = 0;
+  let high = 9999;
+  const mRange = s.match(/([\d.]+)\s*[-–]\s*([\d.]+)\s*元/);
+  const mLe = s.match(/≤\s*([\d.]+)/);
+  const mPlus = s.match(/([\d.]+)\s*元\+/) || s.match(/([\d.]+)\s*元\s*以上/);
+  if (mLe) {
+    low = 0;
+    high = parseFloat(mLe[1]) || 3;
+  } else if (mRange) {
+    low = parseFloat(mRange[1]) || 0;
+    high = parseFloat(mRange[2]) || low;
+  } else if (mPlus) {
+    low = parseFloat(mPlus[1]) || 20;
+    high = 9999;
+  } else {
+    const nums = s.match(/[\d.]+/g);
+    if (nums && nums.length >= 2) {
+      low = parseFloat(nums[0]) || 0;
+      high = parseFloat(nums[1]) || low;
+    } else if (nums && nums.length === 1) {
+      low = parseFloat(nums[0]) || 0;
+      high = low + 1;
+    }
+  }
+  const mid = (low + high) / 2;
+  return { low, high, mid };
+}
+
+function bandMidFromPriceRow(row) {
+  return parsePriceBandMeta(row && row.tag).mid;
+}
+
+/** 通识：在「销量领先」的价带子集里去掉统计上最易误导的两端，再按热度择优（跨品类，不依赖饮料特例） */
+function pickDraftPriceRowFromList(pricesAll) {
+  if (!pricesAll || !pricesAll.length) return null;
+  const byVol = [...pricesAll].sort(
+    (a, b) => (Number(b.total_qty) || 0) - (Number(a.total_qty) || 0)
+  );
+  const k = Math.min(6, byVol.length);
+  const slice = byVol.slice(0, k);
+  const sortByHeat = (rows) =>
+    [...rows].sort((a, b) => {
+      const ds = (Number(b.score) || 0) - (Number(a.score) || 0);
+      if (ds !== 0) return ds;
+      return (Number(b.psd) || 0) - (Number(a.psd) || 0);
+    });
+  if (slice.length <= 2) return sortByHeat(slice)[0];
+
+  let minMid = Infinity;
+  let maxMid = -Infinity;
+  slice.forEach((r) => {
+    const m = bandMidFromPriceRow(r);
+    if (m < minMid) minMid = m;
+    if (m > maxMid) maxMid = m;
+  });
+  if (Math.abs(maxMid - minMid) < 1e-6) return sortByHeat(slice)[0];
+
+  const minRows = slice.filter((r) => bandMidFromPriceRow(r) === minMid);
+  const maxRows = slice.filter((r) => bandMidFromPriceRow(r) === maxMid);
+  const dropMin = [...minRows].sort(
+    (a, b) => (Number(a.score) || 0) - (Number(b.score) || 0)
+  )[0];
+  const dropMax = [...maxRows].sort(
+    (a, b) => (Number(a.score) || 0) - (Number(b.score) || 0)
+  )[0];
+  let pool = slice.filter((r) => r !== dropMin && r !== dropMax);
+  if (!pool.length) pool = slice;
+  return sortByHeat(pool)[0];
+}
+
+/** 仅对「克」规格：过小克重多为单粒/口香糖等，不宜作为「最优规格」代表整类主力结构 */
+function specGramRepresentFactor(r) {
+  const u = String(r.spec_unit || "").trim().toLowerCase();
+  if (u !== "g") return 1;
+  const n = parseFloat(String(r.tag || "").trim().replace(/,/g, ""));
+  if (!Number.isFinite(n) || n <= 0) return 1;
+  if (n < 10) return 0.38;
+  if (n < 20) return 0.72;
+  if (n < 35) return 0.9;
+  return 1;
+}
+
+/** 混单位聚合行更易在评分上冒尖，与「单一清晰规格」展示口径不一致 */
+function specMixedUnitFactor(r) {
+  return r.spec_unit_mixed ? 0.82 : 1;
+}
+
+/**
+ * 口味 / 商品主体 / 规格数值：在「热度前几」子集中剔除 SKU 数异常偏低的尾项，再择优（通识，不针对单一毫升）。
+ * 避免少数 SKU、小众规格仅靠评分占第一就盖住大盘。
+ */
+function pickDraftDimRow(rows) {
+  if (!rows || !rows.length) return null;
+  const skuN = (r) => Math.max(0, Number(r.sku) || 0);
+  const scoreN = (r) => Number(r.score) || 0;
+  const K = Math.min(15, rows.length);
+  const topByScore = [...rows].sort((a, b) => scoreN(b) - scoreN(a)).slice(0, K);
+  const maxSku = Math.max(...topByScore.map(skuN), 1);
+  let minSkuOk = Math.max(3, Math.ceil(maxSku * 0.06));
+  let qualified = topByScore.filter((r) => skuN(r) >= minSkuOk);
+  if (qualified.length < 2) {
+    minSkuOk = Math.max(2, Math.ceil(maxSku * 0.035));
+    qualified = topByScore.filter((r) => skuN(r) >= minSkuOk);
+  }
+  if (!qualified.length) qualified = topByScore;
+  const maxScore = Math.max(...qualified.map(scoreN), 1e-9);
+  const skuWeight = 0.15;
+  const blend = (r) =>
+    (scoreN(r) / maxScore + skuWeight * (skuN(r) / maxSku)) *
+    specGramRepresentFactor(r) *
+    specMixedUnitFactor(r);
+  return [...qualified].sort((a, b) => {
+    const db = blend(b) - blend(a);
+    if (Math.abs(db) > 1e-9) return db > 0 ? 1 : -1;
+    const dr = (Number(b.regions) || 0) - (Number(a.regions) || 0);
+    if (dr !== 0) return dr > 0 ? 1 : -1;
+    return (Number(b.total_qty) || 0) - (Number(a.total_qty) || 0);
+  })[0];
+}
+
+function computeDraftSku(cat) {
+  if (!DATA || !cat) {
+    return {
+      bodyTag: "—",
+      specLabel: "—",
+      flavorTag: "—",
+      priceTag: "—",
+      bodyBrand: "",
+      hadBodyBrandCluster: false,
+      priceHeatTag: null,
+    };
+  }
+  const allRaw = DATA.heat.filter((r) => r.cat === cat);
+  const all = allRaw.filter((r) => !(r.dim === "商品主体" && String(r.tag || "").includes("外卖")));
+  const flavors = all.filter((r) => r.dim === "口味");
+  const bodyAll = all.filter((r) => r.dim === "商品主体");
+  const bodies =
+    CURRENT_BODY_BRAND_FILTER === "__ALL__"
+      ? bodyAll
+      : bodyAll.filter((r) => (r.brand || "").trim() === CURRENT_BODY_BRAND_FILTER);
+  const prices = all.filter((r) => r.dim === "价格带").sort((a, b) => b.score - a.score);
+  const snap = DATA.snapshots[cat] || {};
+  const pricesAll = snap.prices_all || snap.price_list || prices;
+  const specs = all.filter((r) => r.dim === "规格数值");
+  const f = pickDraftDimRow(flavors);
+  const b = pickDraftDimRow(bodies);
+  const s = pickDraftDimRow(specs);
+  const specLabel = s ? `${s.tag}${String(s.spec_unit || "").trim()}` : "—";
+
+  const topHeat = pricesAll.length ? pricesAll[0] : null;
+  const pricePick = pricesAll.length ? pickDraftPriceRowFromList(pricesAll) : null;
+  const finalPick = pricePick || topHeat;
+
+  const priceTag = finalPick ? finalPick.tag : "—";
+  const priceHeatTag = topHeat && finalPick && topHeat.tag !== priceTag ? topHeat.tag : null;
+
+  return {
+    flavorTag: f ? f.tag : "—",
+    bodyTag: b ? b.tag : "—",
+    bodyBrand: b ? String(b.brand || "").trim() : "",
+    hadBodyBrandCluster: !!(b && String(b.brand || "").trim()),
+    priceTag,
+    specLabel: specLabel || "—",
+    priceHeatTag,
+  };
+}
+
+function buildSkuPredictionPrompt(cat) {
+  const d = computeDraftSku(cat);
+  const brandClusterHint = d.hadBodyBrandCluster
+    ? "（该主体在数据侧关联多品牌：全篇输出**不得出现任何品牌名**；此处亦不列品牌。）"
+    : "";
+  const priceCtx =
+    d.priceHeatTag != null
+      ? `\n- 价格带（初稿）说明：在「按销量排序的前若干价带」子集中，先各去掉**统计上最便宜与最贵**的一档（常为引流/尾量与礼盒、大规格、高附加值品等，不宜直接代表「常规单件」主力价），再在余下档中按**热度评分**（同分看 PSD）择优得到「${d.priceTag}」。同品类热度第一的价带为「${d.priceHeatTag}」，供对照。**该字符串仅为数据分箱参考，你必须用市场常识复核。**`
+      : `\n- 价格带（初稿）说明：同上规则得到「${d.priceTag}」；与热度第一档一致时不再单列。**须用市场常识复核。**`;
+
+  const dimCtx =
+    "\n- 主体/口味/规格（初稿）说明：在「热度排序前列」子集中，先剔除 **SKU 数相对极少数** 的尾项（小众规格/长尾标签易因样本少在评分上冒尖），再在余下项中按**热度为主、覆盖地区数与总销量为辅**择优。**若仍与品类下大众主流（常见规格带、主力口味与主体组合）不符，你必须用常识在【四要素】中校正**，并在【修正说明】中简要说明。";
+
+  return `你是一位在快消企业做过**真实开品与上市**的资深商品研发（熟悉便利店渠道规格梯度、包材与陈列、成本毛利与供应链可行性）。你的产出必须符合**基本商品逻辑**：口味×主体×品类习惯自洽；规格与包装形态、条码单位合理；价格带与规格、渠道定位匹配；像可立项的 SKU/系列，而非营销口号或无法落地的概念组合。
+
+**可食用性与品类基本属性（全品类须遵守）**：【预测商品】与【四要素】中的主体、口味、馅料/流心/夹心/涂层描述必须**真实可食用、可工业化量产**，并符合该品类在货架上的**基本约定与消费场景**。**禁止**为造噱头把互不兼容的调味体系、互不兼容的「味型命名」硬塞进**同一单品、同一馅心/流心**里，尤其禁止把统计标签机械拼接成**理化与品类常识明显矛盾**的句子。**典型不合格示例（须避免，若初稿接近则必须改写）**：速冻**汤圆/元宵**等糯米外皮、甜点心语境下，出现**奥尔良、烧烤、孜然、麻辣、火锅底料**等典型**咸味肉制品/快餐烧烤**调味体系与「黑芝麻流心」「花生流心」等甜馅叙事**混成一款**的离奇组合——此类在真实配方与消费认知上均不成立，一律视为不合格，须在【四要素】与【预测商品】中改为**单一清晰、可落地的味型与结构**（甜馅体系内创新、或改为主体为真正匹配该咸味的品类，仍不写品牌），并在【修正说明】写明「初稿违背品类基本属性/可食用性，已校正」。**冷冻食品、米面、烘焙、乳品等**均须自检：味型是否与主体形态、加热方式、甜咸边界一致；不得输出明显**非食品、不可吞咽、不可上市**的设定。
+
+**口味×主体的市场现实（须遵守）**：「自洽」指**不与成熟货架与消费常识明显冲突**，不等于「个人主观觉得新奇」。便利店与商超里**已长期存在**的味型×基底组合（例如咸味膨化/薯片类上的**可可、巧克力、芝士、蜂蜜黄油、海苔、泡菜**等调味或涂层结构），**不得以**「马铃薯本味与××冲突」「感知违和」等理由在【修正说明】里否定为「严重违背口味×主体」——除非涉及**明显不可工业化落地**或法规/过敏原等硬约束。若初稿恰好落在这类**已被市场验证多年**的组合上，应承认其合理性，把笔墨放在**规格、价位、场景、质地或健康诉求改版**等可开品维度，而非虚构「逻辑错误」。
+
+**【预测商品】的定位与排除（须遵守）**：【预测商品】须指向**仍有开品与企划讨论价值**的方向（风味延展、结构/质地升级、场景与规格×价位新组合、清洁标签/减负担改版等）。**禁止**把渠道里**已高度成熟、多年常态渗透**的「基准款」「原味/本味占主导的常规单品形态」当作预测结论——例如仅写「原味薯片」「基础盐味膨化」「常规单一口味无增量」等**无差异化增量**的表述，视为不合格；应改为在**同一品类内**给出带**明确增量**、仍不写品牌的可立项方向（复合味型、限定场景、新规格带与主力价的匹配等）。若【数据初稿】落在上述成熟基准上，【四要素】与【预测商品】必须**主动迁出**到更有企划价值的组合，并在【修正说明】中一句话交代「初稿偏成熟基准品，已改为增量方向」。
+
+**标签与规格的通识（跨品类，须遵守）**：统计「热度」来自多指标合成，**不等于**「市场上最常见、最值得跟进的单品形态」。SKU 很少的标签往往在热度上不稳定，不宜直接代表品类主力；你必须结合【品类】判断初稿的主体、口味、规格是否代表**大众日常货架的主力结构**。若初稿明显小众或与常识冲突，**在【四要素】中给出更合理的通用表述**（仍不得写品牌），并在【修正说明】中写明依据。
+
+**价格与规格的通识（跨品类，须遵守）**：统计上的「价格带」来自分箱汇总，**不等于**某一具体 SKU 的合理零售价。极端低价档往往对应引流品、尾量结构或少数 SKU；极端高价档常见礼盒、多支组合、大毫升/大克重、短保或高附加值形态。你必须结合【品类】+【商品主体】+【规格数值】所隐含的**典型购买单元**（单支/单包/单瓶等），判断初稿价带是否代表「大众日常可接受的主力价」；若明显违背常识（例如常规单件即饮/单包零食却落在统计上的最高档等），**在【四要素】中给出符合市场规律的价格带表述**，并在【修正说明】首句写明「初稿价带仅作数据参考，已按品类常识校正」。
+
+**酒类与酒精饮品常识（当【品类】为「酒类」或【四要素】出现啤酒/葡萄酒/黄酒/洋酒/白酒/预调酒等时须遵守）**：**酒精度、工艺与品类名称必须一致**，不得出现与真实货架与理化常识冲突的表述。**严禁**把典型**低度**的啤酒写成与白酒、伏特加同档的**高度数**（例如「四十多度的啤酒」「42°啤酒」等一律视为不合格）；若初稿或联想中出现此类错位，必须在【四要素】与【预测商品】中**按正确酒种与常见酒精度带改写**，并在【修正说明】中点明已校正。**葡萄酒、洋酒（威士忌等蒸馏酒）、黄酒、白酒、预调酒**各自的风味逻辑、常见装瓶与度数表述不得混用——不得把只适合某一酒种的叙事硬套到另一酒种。**口味×酒种**须对齐**市场上真实存在的组合与工艺路径**（如啤酒侧：麦香、酒花、小麦/白啤、黑啤、IPA、常见果香增味等；葡萄酒侧：品种与典型风格方向等），禁止为追热点编造与同品类常识明显矛盾的商品定义。
+
+**硬性约束（违反视为不合格）**：在【预测商品】【四要素】【市场热度归纳】【修正说明】四处正文中，**一律不得出现**任何品牌名、商标、企业名、渠道代号，以及「××##」式掩码品牌；不得用可识别到具体公司的昵称。主体、场景、渠道仅用**通用品类/业态**表述（如「便利店鲜食」「常见烘焙连锁」等无识别指向说法）。**不得输出明显不可食用、非食品可实现、或与该品类基本属性（甜咸边界、馅心结构、酒种与酒精度等）明显矛盾的味型×主体结构**。**酒类相关输出不得出现酒精度与酒种错位、或与该酒种工艺常识明显矛盾的基本错误**（如高度数啤酒）。${brandClusterHint}
+
+**时间与「资讯/数据」表述（须遵守）**：以 **2026 年** 为当前时点。凡涉及市场、渠道、动销、研报、统计口径的**时间锚点**，**不得早于 2025 年**——不得写出 **2024、2023 及更早** 的年份或「2024年Q1/Q2」「去年」「前年」等作为**事实性引用**。**禁止编造**带具体年份、季度、百分比的所谓公开数据（例如「（2024年Q2冷链饮品动销数据显示该规格占…68%）」这类句式一律不得出现）。若无法给出可在 **2025–2026** 语境下成立的表述，只写**方向性、非量化**的趋势，并标「（行业推断）」。
+
+下面只提供「数据初稿」。其中「当前市场与渠道近期有热度的信息」**必须由你在回答里自行归纳撰写**，不要引用、复述本提示词之外的任何固定文案（你没有访问我本地网页或内嵌资讯区的能力）。
+
+【品类】${cat}
+
+【数据初稿】（由销售数据自动拼接，非最终商品定义；各维度规则见下）：
+- 商品主体：${d.bodyTag}
+- 规格数值：${d.specLabel}
+- 口味：${d.flavorTag}
+- 价格带（初稿）：${d.priceTag}${dimCtx}${priceCtx}
+
+请**严格按下面顺序**输出（**先结论、后解释**；不要使用 markdown 代码围栏；在【四要素】结束后单独起一行，只写五个短横线「-----」，再写后续段落）：
+
+【预测商品】
+一句话：须像真实研发立项的 SKU/系列名称 + 核心卖点（可落地、可想象实物）；**须为真实可食用、可量产**的商品定义；**不得含品牌**；**不得**仅为「原味/本味/基础盐味」等成熟货架基准品而无企划增量（若初稿如此须改写为带增量的方向）。
+
+【四要素】
+主体｜规格｜口味｜价格带（**均为通用描述，不得含品牌**）
+
+-----
+（以下为支撑说明，必须放在最后）
+
+【市场热度归纳】
+请你基于公开行业常识与便利店/快消渠道的**一般性**动向（默认中国大陆、便利店场景；**当前 2026 年**，所归纳的「近期」须落在 **2025–2026** 语境内），写出与上述品类相关的「近期有热度」线索：**4～8 条**，每条单独一行、简短；**只写品类/价位带/场景/需求趋势，不写任何品牌或企业**；无可靠依据处标「（行业推断）」。**不得**写出早于 **2025** 的年份或季度、不得虚构「××年动销/占比%」类数据句；**不要**把本提示词以外的任何预置资讯列表当作素材照抄。
+
+【修正说明】
+用研发视角说明：相对【数据初稿】做了哪些调整、为何符合商品逻辑；以及如何对照你在【市场热度归纳】中自己写出的条目（可写序号）。**不得出现品牌**；**不要**在【预测商品】【四要素】里重复长篇解释，结论已在最前给出。**凡涉时间或市场阶段，仅允许 2025–2026，不得早于 2025，不得编造带年份/季度的假数据。**
+
+总篇幅建议不超过 1100 字。`;
+}
+
+/** 去掉首尾空白、隐形字符、误粘贴的引号 */
+function normalizeLlmApiKey(raw) {
+  if (raw == null) return "";
+  let s = String(raw).trim();
+  s = s.replace(/^["'「」]+|["'「」]+$/g, "");
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  s = s.replace(/\s+/g, "");
+  return s;
+}
+
+/** 从 local_settings.js 文本解析密钥与线路（Qwen / Anthropic） */
+function applyLocalLlmFromFetchedText(t) {
+  window.__LOCAL_LLM_CONFIG_EMPTY__ = false;
+  const pick = (name) => {
+    let m = t.match(new RegExp("window\\." + name + "\\s*=\\s*\"([^\"]*)\""));
+    if (!m) m = t.match(new RegExp("window\\." + name + "\\s*=\\s*'([^']*)'"));
+    return m ? m[1] : null;
+  };
+  const q = pick("__QWEN_API_KEY__");
+  const d = pick("__DASHSCOPE_API_KEY__");
+  const a = pick("__LOCAL_ANTHROPIC_KEY__");
+  const prov = pick("__LLM_PROVIDER__");
+  const model = pick("__QWEN_MODEL__");
+  if (q != null && !normalizeLlmApiKey(q) && t.includes("__QWEN_API_KEY__")) window.__LOCAL_LLM_CONFIG_EMPTY__ = true;
+  if (q != null && normalizeLlmApiKey(q)) window.__QWEN_API_KEY__ = normalizeLlmApiKey(q);
+  if (d != null && normalizeLlmApiKey(d)) window.__QWEN_API_KEY__ = window.__QWEN_API_KEY__ || normalizeLlmApiKey(d);
+  if (a != null && normalizeLlmApiKey(a)) window.__LOCAL_ANTHROPIC_KEY__ = normalizeLlmApiKey(a);
+  else if (a != null && !normalizeLlmApiKey(a) && t.includes("__LOCAL_ANTHROPIC_KEY__")) window.__LOCAL_LLM_CONFIG_EMPTY__ = true;
+  if (prov != null && String(prov).trim()) window.__LLM_PROVIDER__ = String(prov).trim().toLowerCase();
+  if (model != null && String(model).trim()) window.__QWEN_MODEL__ = String(model).trim();
+}
+
+/** 部分环境下 <script src="local_settings.js"> 未执行，再用 fetch 补读 */
+async function prefetchLocalLlmConfigFromDisk() {
+  window.__LOCAL_ANTHROPIC_KEY_EMPTY_FILE__ = false;
+  const hasMem =
+    (typeof window.__QWEN_API_KEY__ === "string" && window.__QWEN_API_KEY__.trim()) ||
+    (typeof window.__LOCAL_ANTHROPIC_KEY__ === "string" && window.__LOCAL_ANTHROPIC_KEY__.trim());
+  if (hasMem) return;
+  try {
+    const r = await fetch("local_settings.js?v=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) return;
+    applyLocalLlmFromFetchedText(await r.text());
+  } catch (e) {}
+}
+
+/** 决定用千问（DashScope）还是 Claude：显式 __LLM_PROVIDER__ > 输入框启发 > 文件里谁有值 */
+function resolveSkuPredictionLlm(keyInputEl) {
+  const norm = normalizeLlmApiKey;
+  const qFile = typeof window.__QWEN_API_KEY__ === "string" ? norm(window.__QWEN_API_KEY__) : "";
+  const aFile = typeof window.__LOCAL_ANTHROPIC_KEY__ === "string" ? norm(window.__LOCAL_ANTHROPIC_KEY__) : "";
+  const inp = norm(keyInputEl && keyInputEl.value);
+  const provRaw = (window.__LLM_PROVIDER__ || "").toLowerCase();
+  const sq = norm(sessionStorage.getItem("dashscope_api_key") || "");
+  const sa = norm(sessionStorage.getItem("anthropic_key_sku") || sessionStorage.getItem("sku_pred_key_cache") || "");
+
+  if (provRaw === "anthropic") {
+    const k = inp || aFile || sa;
+    if (k) return { provider: "anthropic", key: k };
+  }
+  if (provRaw === "qwen") {
+    const k = inp || qFile || sq;
+    if (k) return { provider: "qwen", key: k };
+  }
+  if (inp) {
+    if (inp.startsWith("sk-ant-api")) return { provider: "anthropic", key: inp };
+    return { provider: "qwen", key: inp };
+  }
+  if (qFile) return { provider: "qwen", key: qFile };
+  if (aFile) return { provider: "anthropic", key: aFile };
+  if (sq) return { provider: "qwen", key: sq };
+  if (sa) return { provider: "anthropic", key: sa };
+  return { provider: null, key: "" };
+}
+
+async function generateSkuPrediction() {
+  const cat = CURRENT_CAT;
+  if (!cat || !DATA) return;
+  await prefetchLocalLlmConfigFromDisk();
+  const out = document.getElementById("pred-llm-out");
+  const btn = document.getElementById("btn-sku-pred");
+  const keyInput = document.getElementById("sku-pred-api-key");
+  const { provider, key } = resolveSkuPredictionLlm(keyInput);
+  const prompt = buildSkuPredictionPrompt(cat);
+  window.__LAST_SKU_PRED_PROMPT__ = prompt;
+  if (!key || !provider) {
+    const portHint = location.port ? `:${location.port}` : "";
+    const emptyFile = window.__LOCAL_LLM_CONFIG_EMPTY__ || window.__LOCAL_ANTHROPIC_KEY_EMPTY_FILE__;
+    window.__LOCAL_ANTHROPIC_KEY_EMPTY_FILE__ = false;
+    window.__LOCAL_LLM_CONFIG_EMPTY__ = false;
+    alert(
+      "未读到可用的 API Key。请在 local_settings.js 中至少配置其一（保存后强制刷新）：\n\n" +
+        "· 千问（推荐）：window.__QWEN_API_KEY__ = \"你的DashScope密钥\";\n" +
+        "  可选：window.__LLM_PROVIDER__ = \"qwen\";\n" +
+        "  密钥在 https://dashscope.console.aliyun.com/apiKey\n\n" +
+        "· Claude：window.__LOCAL_ANTHROPIC_KEY__ = \"sk-ant-api…\";\n" +
+        "  可选：window.__LLM_PROVIDER__ = \"anthropic\";\n\n" +
+        "也可用本页输入框粘贴密钥（sk-ant-api 走 Claude，否则默认走千问）。\n\n" +
+        (emptyFile ? "（检测到密钥变量存在但引号内为空，请先保存文件。）\n\n" : "") +
+        "本页地址示例：http://127.0.0.1" +
+        portHint +
+        "/选品分析报告_v3.html"
+    );
+    return;
+  }
+  if (provider === "qwen") sessionStorage.setItem("dashscope_api_key", key);
+  else sessionStorage.setItem("anthropic_key_sku", key);
+  sessionStorage.setItem("sku_pred_key_cache", key);
+  sessionStorage.setItem("sku_pred_provider", provider);
+  if (out) {
+    out.style.display = "block";
+    out.textContent = "生成中…";
+  }
+  if (btn) btn.disabled = true;
+  try {
+    let text = "";
+    if (provider === "qwen") {
+      const qModel = (typeof window.__QWEN_MODEL__ === "string" && window.__QWEN_MODEL__.trim()) || "qwen-plus";
+      const resp = await fetch("https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + key,
+        },
+        body: JSON.stringify({
+          model: qModel,
+          max_tokens: 1600,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const msg =
+          (data.error && (data.error.message || data.error.msg)) ||
+          data.message ||
+          resp.statusText;
+        throw new Error(msg || `HTTP ${resp.status}`);
+      }
+      text = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || "";
+    } else {
+      const resp = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "anthropic-dangerous-direct-browser-access": "true",
+        },
+        body: JSON.stringify({
+          model: "claude-3-5-sonnet-20241022",
+          max_tokens: 1600,
+          messages: [{ role: "user", content: prompt }],
+        }),
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) {
+        const msg = data.error && data.error.message ? data.error.message : resp.statusText;
+        throw new Error(msg || `HTTP ${resp.status}`);
+      }
+      text =
+        (data.content && data.content.map((c) => (c.text != null ? c.text : "")).join("")) || "";
+    }
+    if (out) out.textContent = (text || "（未返回正文）").trim();
+  } catch (e) {
+    const hint = (e && e.message) || String(e) || "未知错误";
+    let extra = "请检查 API Key、网络或模型权限后重试。";
+    if (/invalid x-api-key/i.test(String(hint))) {
+      extra =
+        "说明：invalid x-api-key 表示 Anthropic 不认可当前密钥。\n\n请改用 https://console.anthropic.com/ → API Keys，或在 local_settings.js 使用 window.__QWEN_API_KEY__ 走千问。";
+    }
+    if (/Incorrect API key|invalid_api_key|401/i.test(String(hint)) && provider === "qwen") {
+      extra =
+        "说明：千问接口返回鉴权失败。请到 https://dashscope.console.aliyun.com/apiKey 核对 API-Key，并确认已开通「通义千问」模型与账户余额。\n\n可在 local_settings.js 设置 window.__QWEN_MODEL__ = \"qwen-turbo\" 等可用模型。";
+    }
+    if (out) {
+      out.textContent = `调用失败：${hint}\n\n${extra}`;
+    }
+  }
+  if (btn) btn.disabled = false;
 }
 
 function onBodyBrandFilterChange(val) {
