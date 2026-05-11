@@ -113,9 +113,12 @@
   .pred-mini { font-size: 0.8rem; line-height: 1.65; color: var(--ink); margin-top: 6px; }
   .pred-mini strong { font-weight: 700; color: var(--accent); }
   .pred-out { margin-top: 10px; font-size: 0.82rem; line-height: 1.75; color: var(--ink); white-space: pre-wrap; max-height: 240px; overflow-y: auto; padding: 10px; background: #fff; border: 1px solid var(--rule); border-radius: 2px; }
-  .pred-out.is-static { max-height: min(70vh, 520px); }
+  .pred-out.is-static { max-height: min(70vh, 520px); border-color: var(--accent); border-width: 1px 1px 1px 3px; }
+  .pred-static-head { display: none; margin-top: 10px; margin-bottom: 6px; font-size: 0.88rem; font-weight: 700; color: var(--accent); letter-spacing: 0.06em; }
+  .pred-static-head.visible { display: block; }
   .pred-static-note { display: none; margin-top: 8px; font-size: 0.72rem; color: var(--muted); line-height: 1.5; padding: 6px 8px; background: #f0ebe0; border: 1px dashed var(--rule); }
   .pred-static-note.visible { display: block; }
+  .pred-tools.is-hidden { display: none !important; }
   .pred-tools { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   .pred-tools input[type="password"] { flex: 1; min-width: 120px; border: 1px solid var(--rule); padding: 6px 8px; font-size: 0.75rem; font-family: 'DM Mono', monospace; }
   .btn-pred { background: var(--ink); color: var(--paper); border: none; padding: 8px 14px; font-family: 'Noto Serif SC', serif; font-size: 0.8rem; cursor: pointer; letter-spacing: 0.06em; transition: background 0.2s; }
@@ -222,7 +225,12 @@ function resolveStaticPredFetchUrl() {
       return q.trim();
     }
   }
-  return new URL(STATIC_PRED_BASENAME, window.location.href).href;
+  // 与热度 JSON 同目录（避免 ?data= 子路径时预测文件 404）
+  try {
+    return new URL(STATIC_PRED_BASENAME, resolveJsonFetchUrl()).href;
+  } catch (e) {
+    return new URL(STATIC_PRED_BASENAME, window.location.href).href;
+  }
 }
 
 async function applyStaticPredFetchResponse(predResp) {
@@ -272,7 +280,7 @@ function showLoadError(triedUrl, err) {
         try {
           DATA = JSON.parse(r.result);
           try {
-            const pr = await fetch(resolveStaticPredFetchUrl());
+            const pr = await fetch(resolveStaticPredFetchUrl(), { cache: "no-store" });
             await applyStaticPredFetchResponse(pr);
           } catch (e3) {}
           init();
@@ -291,7 +299,7 @@ async function loadData() {
   if (window.__EMBEDDED_DATA__) {
     DATA = window.__EMBEDDED_DATA__;
     try {
-      const pr = await fetch(resolveStaticPredFetchUrl());
+      const pr = await fetch(resolveStaticPredFetchUrl(), { cache: "no-store" });
       await applyStaticPredFetchResponse(pr);
     } catch (e) {}
     init();
@@ -302,7 +310,7 @@ async function loadData() {
   try {
     const [resp, predResp] = await Promise.all([
       fetch(fetchUrl),
-      fetch(predUrl).catch(() => ({ ok: false })),
+      fetch(predUrl, { cache: "no-store" }).catch(() => ({ ok: false })),
     ]);
     if (!resp.ok) throw new Error(`HTTP ${resp.status} ${resp.statusText || ""}`.trim());
     DATA = await resp.json();
@@ -639,12 +647,13 @@ function renderContent(cat) {
           <div class="matrix-cell highlight">
             <div class="matrix-cell-title">🔮 研发预测商品</div>
             <div class="pred-mini" id="pred-draft-line">${predDraftLine}</div>
+            <div class="pred-static-head" id="pred-static-head"></div>
+            <div class="pred-out" id="pred-llm-out" style="display:none"></div>
             <div class="pred-static-note" id="pred-static-badge"></div>
             <div class="pred-tools" id="pred-tools-wrap">
               <input type="password" id="sku-pred-api-key" placeholder="DashScope（千问）或 Anthropic API Key" autocomplete="off">
               <button type="button" class="btn-pred" id="btn-sku-pred" onclick="generateSkuPrediction()">生成预测</button>
             </div>
-            <div class="pred-out" id="pred-llm-out" style="display:none"></div>
           </div>
         </div>
         <div class="matrix-cell highlight" style="grid-column:1/-1">
@@ -689,6 +698,7 @@ function applyStaticSkuPredictionIfAny(cat) {
   const out = document.getElementById("pred-llm-out");
   const wrap = document.getElementById("pred-tools-wrap");
   const badge = document.getElementById("pred-static-badge");
+  const head = document.getElementById("pred-static-head");
   const keyInput = document.getElementById("sku-pred-api-key");
   if (!out || !wrap || !badge) return;
   const meta = window.__STATIC_SKU_PRED_META__;
@@ -696,13 +706,22 @@ function applyStaticSkuPredictionIfAny(cat) {
   out.classList.remove("is-static");
   badge.classList.remove("visible");
   badge.textContent = "";
+  if (head) {
+    head.classList.remove("visible");
+    head.textContent = "";
+  }
+  wrap.classList.remove("is-hidden");
   const raw = map && Object.prototype.hasOwnProperty.call(map, cat) ? map[cat] : null;
   const text = raw != null ? String(raw).trim() : "";
   if (text) {
     out.style.display = "block";
     out.textContent = text;
     out.classList.add("is-static");
-    wrap.style.display = "none";
+    wrap.classList.add("is-hidden");
+    if (head) {
+      head.textContent = "📌 预生成「商品预测」全文（与上方数据初稿不同，为企划演绎；客户只读）";
+      head.classList.add("visible");
+    }
     let note =
       "本品类为预生成演示文案，访问方无需 API。更新请替换仓库内「" + STATIC_PRED_BASENAME + "」中对应品类。";
     if (meta && meta.generated_at) note = "预生成时间：" + meta.generated_at + "。" + note;
@@ -713,7 +732,6 @@ function applyStaticSkuPredictionIfAny(cat) {
   }
   out.style.display = "none";
   out.textContent = "";
-  wrap.style.display = "";
   if (keyInput) {
     const sk = sessionStorage.getItem("sku_pred_key_cache") || sessionStorage.getItem("anthropic_key_sku");
     const localK =
